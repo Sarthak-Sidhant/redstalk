@@ -76,7 +76,7 @@ python main.py <reddit_username> --api-key "YOUR_API_KEY_HERE" --prompt-file pro
 ```
 (Replace <reddit_username> and "YOUR_API_KEY_HERE")
 
-**Example 2: Basic Run (Using Environment Variable)
+**Example 2: Basic Run (Using Environment Variable)**
 *  Make sure you've set the GOOGLE_API_KEY environment variable first!
 *  No need for --api-key.
 
@@ -85,20 +85,20 @@ python main.py <reddit_username> --prompt-file prompt.txt
 ```
 (Replace <reddit_username>)
 
-**Example 3: Raw Analysis (Using Environment Variable)
+**Example 3: Raw Analysis (Using Environment Variable)**
 *    Uses the --raw-analysis flag to get a sequential list instead of mapped comments.
 
 ```
 python main.py <reddit_username> --prompt-file prompt.txt --raw-analysis
 ```
-**Example 4: Specifying Output Directory and Forcing Scrape
+**Example 4: Specifying Output Directory and Forcing Scrape**
 *  Uses --output-dir to save files elsewhere (e.g., analysis_results).
 *  Uses --force-scrape to fetch all data again, ignoring any previously saved JSON.
 ```
 python main.py <reddit_username> --api-key "YOUR_KEY" --prompt-file prompt.txt --output-dir analysis_results --force-scrape
 ```
 
-**HELP
+**HELP**
 *  to see all command line options
 ```python main.py --help```
 
