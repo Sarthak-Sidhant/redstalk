@@ -1,7 +1,7 @@
 # RedStalk
 ### Reddit User AI Profiler
 
-*Currently uses the `gemini-pro` model by default (configurable in the script). Chunking occurs for data exceeding ~1M tokens.*
+*Currently uses the `gemini-2.0-flash` model by default (configurable in the script). Chunking occurs for data exceeding ~500k/1M tokens. (also configurable)*
 
 This script scrapes the public post and comment history of a specified Reddit user, processes the text, and then uses the Google Gemini AI to generate a detailed character analysis based on their language and activity.
 
