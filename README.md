@@ -1,124 +1,143 @@
 # RedStalk
 ### Reddit User AI Profiler
 
-*currently uses the gemini-2.0-flash model with 1M context window*
+*Currently uses the `gemini-pro` model by default (configurable in the script). Chunking occurs for data exceeding ~1M tokens.*
 
 This script scrapes the public post and comment history of a specified Reddit user, processes the text, and then uses the Google Gemini AI to generate a detailed character analysis based on their language and activity.
 
 ## What it Does
 
 1.  **Scrapes Reddit:** Fetches public posts and comments for a given username. It tries to be efficient by only fetching new or updated items if you run it again for the same user (unless you force a full re-scrape).
-2.  **Processes Data:** Cleans up the text slightly and organizes it into `.json` and `.csv` files, including the creation date and a direct link (permalink) for each post and comment.
+2.  **Processes Data:** Cleans up the text slightly and organizes it into `.json` and `.csv` files, including the creation date and a direct link (permalink as a full URL) for each post and comment.
 3.  **Analyzes with AI:** Sends the user's text data (potentially in chunks if it's very long) to the Google Gemini AI.
-4.  **Uses Custom Instructions:** You provide a separate text file (`prompt.txt`) that tells the AI *how* to perform the analysis (e.g., what personality traits to look for, how to structure the output).
-5.  **Generates Profile:** Saves the AI's analysis as a Markdown (`.md`) file. It can create two types of profiles:
+4.  **Uses Custom Instructions:** You provide a separate text file (e.g., `prompt.txt`) that tells the AI *how* to perform the analysis (e.g., what personality traits to look for, how to structure the output).
+5.  **Generates Profile:** Saves the AI's analysis as a timestamped Markdown (`.md`) file. It can create two types of profiles:
     *   **Mapped:** Tries to group comments under the posts they replied to (Default).
     *   **Raw:** Simply lists all posts and comments chronologically.
 
 ## Features
 
 *   Incremental scraping to save time and avoid redundant fetches.
-*   Option to scrape only comments.
-*   Option to force a full re-scrape.
-*   Includes timestamps and permalinks in data passed to the AI.
-*   Loads AI instructions (system prompt) from an external file for easy customization.
-*   Supports "Mapped" and "Raw" analysis output formats.
+*   Option to scrape only comments (`--scrape-comments-only`).
+*   Option to force a full re-scrape (`--force-scrape`).
+*   Includes timestamps and full permalink URLs in data passed to the AI.
+*   Loads AI instructions (system prompt) from an external file.
+*   Supports "Mapped" and "Raw" analysis output formats (`--raw-analysis`).
 *   Handles large amounts of text by splitting it into chunks for the AI.
+*   **Configurable Chunk Size:** Control the target token limit per chunk via command-line (`--chunk-size`) or config file.
+*   **Configuration File (`config.json`):** Set default values for output directory, prompt file path, chunk size, and optionally the API key.
+*   **Flexible API Key Handling:** Prioritizes API key sources: Environment Variable -> `config.json` -> Command-line flag.
+*   **Timestamped Output:** Analysis filenames include the date (e.g., `username_charc_mapped_20231028.md`).
+*   **Config Reset:** Easily reset `config.json` to defaults (`--reset-config`).
 *   Organizes all output neatly into a directory for the specific user.
-*   Configurable via command-line arguments.
+*   Configurable via command-line arguments with sensible defaults.
 
 ## Prerequisites
 
 *   **Python 3:** Version 3.7 or higher is recommended.
 *   **pip:** Python's package installer (usually comes with Python).
-*   **Google Gemini API Key:** You need an API key from Google AI Studio or Google Cloud to use the analysis feature. Get one here: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+*   **Google Gemini API Key:** You need an API key from Google AI Studio or Google Cloud. Get one here: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
 ## Basic Setup
 
-1.  **Get the Script:** Download or clone the `main.py` script file to your computer.
+1.  **Get the Script:** Download or clone the `main.py` (or `reddit_analyzer.py` as generated previously) script file to your computer.
 2.  **Install Libraries:** Open your terminal or command prompt, navigate to the directory where you saved the script, and run:
-    ```
+    ```bash
     pip install requests google-generativeai
     ```
-3.  **Create Prompt File:** Create a plain text file named `prompt.txt` (or any name you like) in the same directory. Paste the instructions for the AI into this file. See the example prompt provided earlier or write your own! This file tells the AI what kind of analysis you want.
+3.  **Create Prompt File:** Create a plain text file named `prompt.txt` (or use the `--prompt-file` argument to specify a different path/name) in the same directory. Paste the instructions for the AI into this file. This file tells the AI what kind of analysis you want.
+4.  **(Optional) Create Config File:** Create a file named `config.json` in the same directory to set custom defaults. If you don't create it, the script uses built-in defaults.
+
+    *Example `config.json`:*
+    ```json
+    {
+        "default_output_dir": "reddit_profiles",
+        "default_prompt_file": "prompts/analyzer_v2.txt",
+        "default_chunk_size": 400000,
+        "api_key": null
+    }
+    ```
+    *(Set `"api_key"` to your key string here if you want to use the config file as a source for it, otherwise keep it `null` or omit the line).*
 
 ## Configuration: The API Key
 
-The script needs your Google Gemini API key to work. You have two ways to provide it:
+The script needs your Google Gemini API key. It looks for the key in this order:
 
-**Method 1: Command-Line Argument (Less Secure)**
+1.  **Environment Variable (Highest Priority):** Checks for `GOOGLE_API_KEY`. This is the recommended method for security.
+    *   **Linux/macOS:** `export GOOGLE_API_KEY="YOUR_KEY_HERE"`
+    *   **Windows CMD:** `set GOOGLE_API_KEY=YOUR_KEY_HERE`
+    *   **Windows PowerShell:** `$env:GOOGLE_API_KEY="YOUR_KEY_HERE"`
+2.  **Config File (`config.json`) (Middle Priority):** Checks for a non-null `"api_key"` field inside `config.json`.
+3.  **Command-Line Argument (Lowest Priority):** Checks for the `--api-key` flag.
 
-*   You can pass the key directly when you run the script using the `--api-key` flag.
-*   **Warning:** This might store your key in your shell history.
-
-**Method 2: Environment Variable (Recommended)**
-
-*   This is generally a safer way to handle keys.
-*   **How to set it:**
-    *   **Linux/macOS:** In your terminal, run `export GOOGLE_API_KEY="YOUR_API_KEY_HERE"` (replace with your actual key). This usually lasts for your current terminal session. To make it permanent, add this line to your shell profile file (like `.bashrc`, `.zshrc`, or `.profile`).
-    *   **Windows (Command Prompt):** Run `set GOOGLE_API_KEY=YOUR_API_KEY_HERE`. This lasts for the current session.
-    *   **Windows (PowerShell):** Run `$env:GOOGLE_API_KEY="YOUR_API_KEY_HERE"`. This lasts for the current session.
-    *   **Windows (Permanent):** Search for "Environment Variables" in the Start menu and add `GOOGLE_API_KEY` as a new User variable with your key as the value. You might need to restart your terminal or PC.
-*   If you set the environment variable, you **don't** need to use the `--api-key` argument when running the script.
+The script uses the *first* valid key it finds following this priority. You only need to provide the key using **one** of these methods. If no key is found from any source, the script will exit with an error.
 
 ## How to Run the Script
 
-Open your terminal or command prompt and navigate to the directory containing `main.py` and your `prompt.txt`.
+Open your terminal or command prompt and navigate to the directory containing `main.py` (or your script name).
 
-**Example 1: Basic Run (Mapped Analysis)**
+**Example 1: Using Defaults (Config/ENV VAR Key)**
 
-*   Uses the `--api-key` argument.
-*   Assumes your prompt file is named `prompt.txt`.
-*   Performs the default mapped analysis.
+*   Assumes `config.json` exists for defaults OR you're using built-in defaults.
+*   Assumes API key is set via `GOOGLE_API_KEY` environment variable OR in `config.json`.
+*   Performs default mapped analysis.
 
-```
-python main.py <reddit_username> --api-key "YOUR_API_KEY_HERE" --prompt-file prompt.txt
-```
-(Replace <reddit_username> and "YOUR_API_KEY_HERE")
-
-**Example 2: Basic Run (Using Environment Variable)**
-*  Make sure you've set the GOOGLE_API_KEY environment variable first!
-*  No need for --api-key.
-
-```
-python main.py <reddit_username> --prompt-file prompt.txt
+```bash
+python main.py <reddit_username>
 ```
 (Replace <reddit_username>)
 
-**Example 3: Raw Analysis (Using Environment Variable)**
-*    Uses the --raw-analysis flag to get a sequential list instead of mapped comments.
+**Example 2: Overriding Output Dir & Prompt File**
+*   Uses the API key from ENV VAR or config.json.
+*   Specifies a different output directory and prompt file.
 
 ```
-python main.py <reddit_username> --prompt-file prompt.txt --raw-analysis
+python main.py <reddit_username> --output-dir analysis_results --prompt-file custom_prompt.txt
 ```
-**Example 4: Specifying Output Directory and Forcing Scrape**
-*  Uses --output-dir to save files elsewhere (e.g., analysis_results).
-*  Uses --force-scrape to fetch all data again, ignoring any previously saved JSON.
+**Example 3: Using Command-Line API Key (Fallback)**
+*   Only use --api-key if the key isn't set in ENV or config.json.
+
 ```
-python main.py <reddit_username> --api-key "YOUR_KEY" --prompt-file prompt.txt --output-dir analysis_results --force-scrape
+python main.py <reddit_username> --api-key "YOUR_API_KEY_HERE"
+```
+**Example 4: Raw Analysis with Custom Chunk Size**
+*   Uses the --raw-analysis flag.
+*   Overrides the default chunk size.
+```
+python main.py <reddit_username> --raw-analysis --chunk-size 250000
+```
+
+**Example 5: Forcing a Re-scrape**
+```
+python main.py <reddit_username> --force-scrape
+```
+
+**Example 6: Resetting Configuration**
+*   Resets config.json to the script's built-in defaults (including "api_key": null).
+```
+python main.py --reset-config
 ```
 
 **HELP**
-*  to see all command line options
-```python main.py --help```
+*   To see all available command-line options, their defaults, and descriptions, run:
+```
+python main.py --help
+```
 
 ### Output Files
-The script will create a directory structure like this:
-By default, <output_directory> is data. You can change it with --output-dir.
+The script will create a directory structure like this (default output directory is data unless changed):
 ```
 <output_directory>/
 └── <reddit_username>/
-    ├── <username>.json                 # Raw scraped data from Reddit
-    ├── <username>-posts.csv            # Processed posts in CSV format
-    ├── <username>-comments.csv         # Processed comments in CSV format
-    ├── <username>_character_sketch.md  # The AI-generated profile (mapped analysis)
-    └── <username>_character_sketch_raw.md # The AI-generated profile (raw analysis, if used)
+    ├── <username>.json                      # Raw scraped data from Reddit
+    ├── <username>-posts.csv                 # Processed posts in CSV format
+    ├── <username>-comments.csv              # Processed comments in CSV format
+    ├── <username>_charc_mapped_YYYYMMDD.md  # AI analysis (mapped, timestamped)
+    └── <username>_charc_raw_YYYYMMDD.md     # AI analysis (raw, timestamped, if used)
+    └── config.json                          # (Optional) Configuration file in script directory
 ```
-
 ## Important Notes
-*  API Costs: Using the Google Gemini API may incur costs based on the amount of text processed. Check Google's pricing.
-*  Reddit API Limits: The script includes a small delay between requests to be polite to Reddit's API. Avoid running it too frequently or aggressively for many users. The script uses a basic User-Agent; customizing it might be slightly better practice if used heavily.
-*  Ethical Use: Be mindful of the ethical implications of analyzing and profiling individuals, even based on public data. Use this tool responsibly.
-*  AI Accuracy: The AI's analysis is based on patterns in language. It can be insightful, but it can also be inaccurate, biased, or make incorrect inferences. Always review the output critically.
-
-*  this whole readme was generated by gemini, i just added the help section, i wont bother checking if it was right or wrong.
+*   API Costs: Using the Google Gemini API may incur costs. Check Google Cloud or AI Studio pricing.
+*   Reddit API Limits: The script includes a 2-second delay between fetches. Avoid very frequent runs. Consider customizing the User-Agent in the script if using heavily.
+*   Ethical Use: Use this tool responsibly and be mindful of privacy and the ethics of analyzing public user data.
+*   AI Accuracy: AI analysis can be insightful but is not infallible. It may contain inaccuracies, biases, or misinterpretations. Critical review of the output is recommended.
