@@ -1,0 +1,6 @@
+{
+    "default_output_dir": "users",
+    "default_prompt_file": "prompt.txt",
+    "default_chunk_size": 500000,
+    "api_key": "GEMINI_API_KEY_ASFKJASHFJH"
+}
