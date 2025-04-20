@@ -1,6 +1,10 @@
 {
-    "default_output_dir": "users",
-    "default_prompt_file": "prompt.txt",
-    "default_chunk_size": 500000,
-    "api_key": "GEMINI_API_KEY_ASFKJASHFJH"
+    "default_output_dir": "data",
+    "default_prompt_file": "prompts/prompt.txt",
+    "default_prompt_dir": "prompts",
+    "default_chunk_size": 1000000,
+    "api_key": "use ur own keys babe",
+    "default_model_name": "gemini-2.0-flash",
+    "monitor_interval_seconds": 180,
+    "user_agent": "Python:RedditProfilerScript:v1.4 (by /u/YourRedditUsername)"
 }

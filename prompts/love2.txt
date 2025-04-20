@@ -1,0 +1,23 @@
+Analyze the provided Reddit user's posts and comments to determine their relationship style, values, and dating preferences. Extract information relevant to forming a successful romantic relationship with this person. Provide direct quotes or references to the source material whenever possible to support your analysis. Predict how they might react to specific dating scenarios.
+
+Specifically:
+
+*   **Love Languages:** Identify the user's likely preferred love languages (words of affirmation, acts of service, receiving gifts, quality time, physical touch). Provide examples from their posts/comments that demonstrate their preference for each language, including specific keywords or phrases they use. If multiple love languages seem relevant, rank them in order of importance.
+*   **Communication Style:** Analyze their communication style in detail (direct, indirect, assertive, passive, etc.). How do they express affection? How do they handle disagreements? How do they respond to compliments? Provide specific examples of their communication patterns and predict how they would react to different communication styles from a partner (e.g., direct vs. indirect).
+*   **Relationship Expectations:** Scrutinize their stated and implied expectations regarding commitment, exclusivity, long-term goals, and family. What are their non-negotiables? What are they willing to compromise on? Provide examples.
+*   **Attachment Style:** Based on their expressions of vulnerability, trust, and independence, infer their attachment style (secure, anxious, avoidant, disorganized). Describe the *specific behaviors* that lead you to this conclusion. Predict how their attachment style might manifest in a relationship.
+*   **Values:** Identify their core values (e.g., honesty, kindness, ambition, creativity, family). How do they *demonstrate* these values through their actions and words? How important are these values to them in a romantic partner?
+*   **Interests and Hobbies:** List their expressed interests and hobbies, categorizing them by level of engagement (e.g., casual interest, passionate hobby, professional pursuit). How might these interests be incorporated into date ideas?
+*   **Personality Traits:** Determine their personality traits using specific examples from their posts/comments to support your assessment. What are their strengths and weaknesses? How might these traits impact their relationships?
+*   **Insecurities:** Identify potential insecurities related to appearance, intelligence, social skills, past relationships, or other areas. Analyze *how* they express these insecurities (e.g., humor, defensiveness, avoidance). Predict how a partner could best address these insecurities.
+*   **Things a Partner Should Know:** Highlight any specific needs, sensitivities, or potential challenges that a partner should be aware of. What are their triggers? What coping mechanisms do they use? What kind of support do they need, and *how* should that support be offered?
+*   **Red Flags:** Identify any potential red flags or dealbreakers, providing specific examples and explaining *why* they are concerning in the context of a romantic relationship.
+*   **Dating Strategy:** Develop a detailed, personalized dating strategy tailored to this individual. This should include:
+    *   Specific conversation starters based on their interests and values.
+    *   Date ideas that align with their personality, preferences, and comfort level.
+    *   Approaches to building rapport based on their communication style and attachment style.
+    *   Specific phrases or actions to demonstrate genuine interest and affection, tailored to their love language.
+    *   Contingency plans for addressing potential challenges or insecurities.
+*   **Summarize:** Provide an overall summary of the user's dating profile, highlighting their strengths, weaknesses, key considerations for a potential partner, potential pitfalls to avoid, and a prioritized list of actions to take to increase the chances of a successful relationship.
+
+The goal is to create a comprehensive, actionable, and *predictive* profile that allows someone to understand the user's romantic needs and preferences, successfully initiate and maintain a relationship, anticipate potential challenges, and tailor their approach for maximum effectiveness. All conclusions should be supported by evidence from the user's Reddit activity and framed in terms of specific, observable behaviors and likely reactions.

@@ -1,0 +1,51 @@
+text
+Analyze Reddit user [USERNAME]'s recent activity (last [NUMBER] posts and comments). Focus on extracting insights relevant to their potential romantic life, personality, values, and relationship readiness. Organize the analysis into the following sections, providing supporting evidence (specific quotes/examples) from their Reddit activity for each point:
+
+**I. Personality & Psychological Profile:**
+
+*   **A. Core Personality Traits:** Identify 3-5 dominant personality traits (e.g., Introverted, Empathetic, Analytical, Cynical, Optimistic). For *each* trait:
+    *   State the trait.
+    *   Provide 2-3 direct quotes or examples demonstrating the trait.
+    *   Briefly explain how this trait might impact their relationships (positive and negative aspects).
+*   **B. Emotional Tendencies & Regulation:**
+    *   Assess their overall emotional tone (e.g., Generally positive, anxious, melancholic). Provide 2-3 examples.
+    *   Analyze their apparent ability to regulate emotions. Do they seem to handle stress well? Provide examples.
+    *   Identify potential emotional triggers or sensitivities based on recurring themes in their posts.
+*   **C. Self-Esteem & Confidence:** Evaluate their apparent self-esteem and confidence levels. Provide examples of self-deprecating remarks, expressions of vulnerability, or assertive statements. How might this impact their approach to dating/relationships?
+
+**II. Relationship Goals & Preferences:**
+
+*   **A. Desired Relationship Type:** Infer their desired relationship type (e.g., casual dating, long-term commitment, marriage, polyamory, etc.). What evidence supports this?
+*   **B. Ideal Partner Qualities:** Identify 3-5 qualities they seem to value in a partner (explicitly stated or implied). For *each* quality:
+    *   State the quality.
+    *   Provide an example of them expressing appreciation for this quality (or a lack thereof).
+*   **C. Dealbreakers:** Identify potential dealbreakers they might have (e.g., dishonesty, lack of ambition, specific political views). Provide evidence.
+*    **D. Past Relationship Patterns:** If possible, identify patterns from any mentions of past relationships. What worked? What didn't?
+
+**III. Lifestyle & Interests (and how they might impact dating):**
+
+*   **A. Hobbies & Activities:** List their primary hobbies and interests. How engaged are they in these activities? Do these hobbies offer opportunities for social interaction and meeting potential partners?
+*   **B. Social Circle & Engagement:** Analyze their subreddit participation to infer their social circle and level of social engagement. Are they actively involved in communities? Do they seem to prefer online or offline interactions?
+*   **C. Values & Beliefs:** Identify core values and beliefs related to relationships, ethics, and personal growth that are evident in their posts. How might these values shape their relationship expectations?
+
+**IV. Communication Style & Conflict Resolution:**
+
+*   **A. Communication Style:** Describe their overall communication style (e.g., Direct, Indirect, Assertive, Passive, Sarcastic, Empathetic). Provide *at least two* examples.
+*   **B. Conflict Resolution Style:** Based on their responses to disagreements or criticisms, infer their likely approach to conflict resolution. Do they seem to avoid conflict, engage in confrontation, or seek compromise? Provide evidence.
+
+**V. Potential "Red Flags" & Areas for Growth:**
+
+*   **A. Potential Red Flags:** Identify any potential red flags (e.g., excessive jealousy, controlling tendencies, anger issues, negativity, blaming others). Provide *specific examples* and assess the severity.
+*   **B. Areas for Personal Growth:** Suggest 1-2 areas where they could potentially benefit from personal growth or therapy to improve their relationship prospects (e.g., improving communication skills, managing anxiety, addressing past trauma).
+
+**VI. Overall Assessment:**
+
+*   **A. Relationship Readiness:** Summarize their overall readiness for a healthy and fulfilling relationship. Consider their strengths, weaknesses, and potential challenges.
+*   **B. Potential Match Profile:** Based on the analysis, describe a *general* profile of someone who might be a good match for them. What characteristics and values would be important for a successful relationship?
+
+**Important Notes:**
+
+*   Use direct quotes from the user's Reddit activity to support *all* claims and inferences.
+*   Prioritize objectivity and avoid making judgments based on limited information.
+*   Acknowledge the limitations of this analysis. It is based on publicly available data and provides only a limited perspective. Do not present this as a definitive psychological evaluation.
+*   Maintain user privacy and avoid sharing any personally identifiable information.
