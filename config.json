@@ -3,7 +3,7 @@
     "default_prompt_file": "prompts/prompt.txt",
     "default_prompt_dir": "prompts",
     "default_chunk_size": 1000000,
-    "api_key": "use ur own keys babe",
+    "api_key": "use_ur_own_keys_babe",
     "default_model_name": "gemini-2.0-flash",
     "monitor_interval_seconds": 180,
     "user_agent": "Python:RedditProfilerScript:v1.4 (by /u/YourRedditUsername)"
