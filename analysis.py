@@ -1,3 +1,4 @@
+# analysis.py
 import csv
 import logging
 import os
@@ -23,7 +24,9 @@ def _apply_date_filter_to_entries(entries, date_filter):
     logging.debug(f"      Filtering {len(entries)} formatted analysis entries by date...")
     filtered_entries = []
     # Regex to find the specific date format used in entry headers
-    date_pattern = re.compile(r"\(Date:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+UTC)\)")
+    # Updated regex to be more robust for different date formats within the entry string
+    date_pattern = re.compile(r"(?:Date|timestamp):\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*(?:UTC)?)", re.IGNORECASE)
+
 
     items_kept = 0
     items_filtered = 0
@@ -34,13 +37,18 @@ def _apply_date_filter_to_entries(entries, date_filter):
         if match:
             try:
                 date_str = match.group(1).strip()
-                dt_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S %Z').replace(tzinfo=timezone.utc)
+                # Try parsing with or without explicit timezone (assuming UTC if missing)
+                try:
+                    dt_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S %Z').replace(tzinfo=timezone.utc)
+                except ValueError:
+                    dt_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+
                 entry_ts = dt_obj.timestamp()
                 if not (start_ts <= entry_ts < end_ts):
                     keep = False # Filter out if outside range
                     # logging.debug(f" Filtering out entry {entry_index+1} (Date: {date_str})...") # Verbose
-            except (ValueError, IndexError) as e:
-                 logging.warning(f" Could not parse date '{match.group(1)}' for filtering in entry {entry_index+1}: {e}. Keeping.")
+            except (ValueError, IndexError, AttributeError) as e:
+                 logging.warning(f" Could not parse date '{match.group(1) if match else 'N/A'}' for filtering in entry {entry_index+1}: {e}. Keeping.")
                  # keep remains True
         else:
              logging.warning(f" Could not find date pattern for filtering in entry {entry_index+1}. Keeping.")
@@ -60,20 +68,35 @@ def _apply_date_filter_to_entries(entries, date_filter):
     return filtered_entries
 
 # --- Mapped Analysis ---
+# **** MODIFIED Function Signature ****
 def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model, system_prompt, chunk_size,
-                             date_filter=(0, float('inf')), subreddit_filter=None, # Added filter
+                             date_filter=(0, float('inf')),
+                             focus_subreddits=None, # CHANGED from subreddit_filter
+                             ignore_subreddits=None, # ADDED
                              no_cache_titles=False, fetch_external_context=False):
     """Generates 'mapped' analysis: Formats posts/comments, applies filters."""
     logging.info(f"   Analysis Prep ({BOLD}Mapped Mode{RESET}): Reading & Filtering CSV data...")
     start_time = time.time()
-    filter_active = date_filter[0] > 0 or date_filter[1] != float('inf') or subreddit_filter
-    if filter_active: logging.info(f"      (Filters: {'Date ' if date_filter[0] > 0 or date_filter[1] != float('inf') else ''}{'Subreddit ' if subreddit_filter else ''}applied during CSV read)")
+
+    # --- Prepare Filters ---
+    filter_active = date_filter[0] > 0 or date_filter[1] != float('inf') or focus_subreddits or ignore_subreddits
+    focus_subs_set = {sub.lower() for sub in focus_subreddits} if focus_subreddits else None
+    ignore_subs_set = {sub.lower() for sub in ignore_subreddits} if ignore_subreddits else None
+
+    # --- Logging Filter Status ---
+    filter_log_parts = []
+    if date_filter[0] > 0 or date_filter[1] != float('inf'): filter_log_parts.append("Date")
+    if focus_subs_set: filter_log_parts.append(f"Focus Subs ({len(focus_subs_set)})")
+    if ignore_subs_set: filter_log_parts.append(f"Ignore Subs ({len(ignore_subs_set)})")
+    if filter_log_parts: logging.info(f"      (Filters: {', '.join(filter_log_parts)} applied during CSV read)")
+
     if not fetch_external_context: logging.info(f"      ℹ️ External post context fetching is {BOLD}DISABLED{RESET}.")
     else: logging.info(f"      🌐 External post context fetching is {BOLD}ENABLED{RESET}.")
     if no_cache_titles: logging.warning("      ⚠️ Post title caching is disabled.")
 
     entries = [] # Build list of potential entries FIRST
     posts_read = 0; comments_read = 0
+    posts_kept_count = 0; comments_kept_count = 0 # Track after filtering
     posts_data_filtered = {} # Store post data keyed by permalink and post_id
     comments_data_filtered = [] # Store comment dicts that pass filters
 
@@ -89,8 +112,13 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
                 for i, row in enumerate(reader):
                     posts_read += 1
                     current_sub = row.get('subreddit', '').lower()
-                    # Apply Subreddit Filter Here
-                    if subreddit_filter and current_sub != subreddit_filter: continue
+
+                    # **** MODIFIED Subreddit Filter Logic ****
+                    if focus_subs_set and current_sub not in focus_subs_set:
+                        continue # Skip if focus list exists and sub not in it
+                    if ignore_subs_set and current_sub in ignore_subs_set:
+                        continue # Skip if ignore list exists and sub is in it
+
                     permalink = row.get('permalink','').strip()
                     if not permalink: continue
                     match = re.search(r'/comments/([^/]+)/', permalink)
@@ -100,8 +128,10 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
                                         'permalink': permalink, 'timestamp': timestamp.strip(), 'comments': [], 'subreddit': row.get('subreddit','') } # Store original case sub
                     posts_data_filtered[permalink] = post_entry_data
                     if post_id: posts_data_filtered[post_id] = post_entry_data # Link by ID too
+                    posts_kept_count += 1 # Count kept posts
+
         except Exception as e: logging.error(f"      ❌ Error processing posts CSV {CYAN}{posts_csv}{RESET}: {e}", exc_info=True); return False
-        logging.debug(f"         Loaded and kept {len(posts_data_filtered)//2} posts from {posts_read} rows (after subreddit filter).")
+        logging.debug(f"         Loaded {posts_read} post rows, kept {posts_kept_count} after subreddit filters.")
 
     # --- Load & Filter Comments from CSV ---
     if comments_csv and os.path.exists(comments_csv):
@@ -115,24 +145,31 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
                 for i, row in enumerate(reader):
                     comments_read += 1
                     current_sub = row.get('subreddit', '').lower()
-                    # Apply Subreddit Filter Here
-                    if subreddit_filter and current_sub != subreddit_filter: continue
+
+                    # **** MODIFIED Subreddit Filter Logic ****
+                    if focus_subs_set and current_sub not in focus_subs_set:
+                        continue # Skip if focus list exists and sub not in it
+                    if ignore_subs_set and current_sub in ignore_subs_set:
+                        continue # Skip if ignore list exists and sub is in it
+
                     comment_permalink = row.get('permalink','').strip();
                     if not comment_permalink: continue
                     timestamp = row.get('modified_utc_iso') or row.get('created_utc_iso', 'UNKNOWN_DATE')
                     comments_data_filtered.append({ 'body': row.get('body','[NO BODY]').strip(), 'permalink': comment_permalink,
                                                     'timestamp': timestamp.strip(), 'subreddit': row.get('subreddit','') }) # Store original case sub
+                    comments_kept_count += 1 # Count kept comments
+
         except Exception as e: logging.error(f"      ❌ Error processing comments CSV {CYAN}{comments_csv}{RESET}: {e}", exc_info=True); return False
-        logging.debug(f"         Loaded and kept {len(comments_data_filtered)} comments from {comments_read} rows (after subreddit filter).")
+        logging.debug(f"         Loaded {comments_read} comment rows, kept {comments_kept_count} after subreddit filters.")
 
     # --- Assemble Filtered Entries ---
-    logging.debug(f"      Assembling {len(posts_data_filtered)//2} filtered posts and {len(comments_data_filtered)} filtered comments into analysis entries...")
+    logging.debug(f"      Assembling {posts_kept_count} filtered posts and {comments_kept_count} filtered comments into analysis entries...")
     processed_comment_permalinks = set()
 
     # Add filtered posts and map their filtered comments
     for post_permalink, post_data in posts_data_filtered.items():
-         if not isinstance(post_permalink, str) or not post_permalink.startswith('/'): continue # Ensure it's a permalink key
-         # Use plain subreddit name in header
+         # Check if key is a permalink (starts with /) not an ID
+         if not isinstance(post_permalink, str) or not post_permalink.startswith('/'): continue
          post_header = f"USER'S POST TITLE: {post_data['title']} (Date: {post_data['timestamp']}) (Sub: /r/{post_data['subreddit']}) (Permalink: https://www.reddit.com{post_data['permalink']})"
          post_body_text = post_data['selftext'].replace('<br>', ' ').strip() or '[No Body]'
          post_block = f"{post_header}\nPOST BODY:\n{post_body_text}"
@@ -155,7 +192,7 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
               post_block += "\n  --- End Comments on this Post ---"
          entries.append(post_block)
 
-    # Add filtered comments not mapped above
+    # Add filtered comments not mapped above (comments on external posts)
     external_comments_added = 0
     for comment_info in comments_data_filtered:
         comment_permalink = comment_info['permalink']
@@ -178,7 +215,7 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
     if external_comments_added > 0: logging.debug(f"         Added {external_comments_added} comments on external/other posts.")
 
     prep_duration = time.time() - start_time
-    logging.info(f"   ✅ Analysis Prep ({BOLD}Mapped Mode{RESET}): Prepared {len(entries)} filtered entries ({prep_duration:.2f}s).")
+    logging.info(f"   ✅ Analysis Prep ({BOLD}Mapped Mode{RESET}): Prepared {len(entries)} potential entries ({prep_duration:.2f}s) after subreddit filters.")
 
     # --- APPLY DATE FILTER to assembled `entries` list ---
     final_entries = _apply_date_filter_to_entries(entries, date_filter)
@@ -192,17 +229,30 @@ def generate_mapped_analysis(posts_csv, comments_csv, config, output_file, model
 
 
 # --- Raw Analysis ---
+# **** MODIFIED Function Signature ****
 def generate_raw_analysis(posts_csv, comments_csv, output_file, model, system_prompt, chunk_size,
-                          date_filter=(0, float('inf')), subreddit_filter=None):
+                          date_filter=(0, float('inf')),
+                          focus_subreddits=None, # CHANGED from subreddit_filter
+                          ignore_subreddits=None): # ADDED
     """Generates 'raw' analysis: Sequential list, applies filters."""
     logging.info(f"   Analysis Prep ({BOLD}Raw Mode{RESET}): Reading & Filtering CSV data...")
     start_time = time.time()
-    filter_active = date_filter[0] > 0 or date_filter[1] != float('inf') or subreddit_filter
-    if filter_active: logging.info(f"      (Filters: {'Date ' if date_filter[0] > 0 or date_filter[1] != float('inf') else ''}{'Subreddit ' if subreddit_filter else ''}applied during CSV read)")
+
+    # --- Prepare Filters ---
+    filter_active = date_filter[0] > 0 or date_filter[1] != float('inf') or focus_subreddits or ignore_subreddits
+    focus_subs_set = {sub.lower() for sub in focus_subreddits} if focus_subreddits else None
+    ignore_subs_set = {sub.lower() for sub in ignore_subreddits} if ignore_subreddits else None
+
+    # --- Logging Filter Status ---
+    filter_log_parts = []
+    if date_filter[0] > 0 or date_filter[1] != float('inf'): filter_log_parts.append("Date")
+    if focus_subs_set: filter_log_parts.append(f"Focus Subs ({len(focus_subs_set)})")
+    if ignore_subs_set: filter_log_parts.append(f"Ignore Subs ({len(ignore_subs_set)})")
+    if filter_log_parts: logging.info(f"      (Filters: {', '.join(filter_log_parts)} applied during CSV read)")
 
     entries = [] # Build list of potential entries FIRST
     posts_read = 0; comments_read = 0
-    posts_added = 0; comments_added = 0
+    posts_kept_count = 0; comments_kept_count = 0 # Track after filtering
 
     # --- Process & Filter Posts from CSV ---
     if posts_csv and os.path.exists(posts_csv):
@@ -216,9 +266,14 @@ def generate_raw_analysis(posts_csv, comments_csv, output_file, model, system_pr
                 for i, row in enumerate(reader):
                     posts_read += 1
                     current_sub = row.get('subreddit', '').lower()
-                    # Apply Subreddit Filter
-                    if subreddit_filter and current_sub != subreddit_filter: continue
-                    # Format entry if sub filter passes
+
+                    # **** MODIFIED Subreddit Filter Logic ****
+                    if focus_subs_set and current_sub not in focus_subs_set:
+                        continue # Skip if focus list exists and sub not in it
+                    if ignore_subs_set and current_sub in ignore_subs_set:
+                        continue # Skip if ignore list exists and sub is in it
+
+                    # Format entry if filters pass
                     timestamp = row.get('modified_utc_iso') or row.get('created_utc_iso', 'UNKNOWN_DATE')
                     body_cleaned = row.get('selftext', '').replace('<br>', ' ').strip() or '[No Body]'
                     permalink = row.get('permalink', 'UNKNOWN_PERMALINK').strip()
@@ -230,8 +285,11 @@ def generate_raw_analysis(posts_csv, comments_csv, output_file, model, system_pr
                              f"Title: {row.get('title', '[NO TITLE]').strip()}\n"
                              f"Body:\n{body_cleaned}\n"
                              f"--- POST END ---")
-                    entries.append(entry); posts_added += 1
-        except Exception as e: logging.error(f"      ❌ Error processing posts CSV {CYAN}{posts_csv}{RESET}: {e}", exc_info=True)
+                    entries.append(entry); posts_kept_count += 1 # Count kept posts
+
+        except Exception as e: logging.error(f"      ❌ Error processing posts CSV {CYAN}{posts_csv}{RESET}: {e}", exc_info=True); return False # Return False on error
+        logging.debug(f"         Loaded {posts_read} post rows, kept {posts_kept_count} after subreddit filters.")
+
 
     # --- Process & Filter Comments from CSV ---
     if comments_csv and os.path.exists(comments_csv):
@@ -245,25 +303,33 @@ def generate_raw_analysis(posts_csv, comments_csv, output_file, model, system_pr
                 for i, row in enumerate(reader):
                     comments_read += 1
                     current_sub = row.get('subreddit', '').lower()
-                    # Apply Subreddit Filter
-                    if subreddit_filter and current_sub != subreddit_filter: continue
-                    # Format entry if sub filter passes
+
+                    # **** MODIFIED Subreddit Filter Logic ****
+                    if focus_subs_set and current_sub not in focus_subs_set:
+                        continue # Skip if focus list exists and sub not in it
+                    if ignore_subs_set and current_sub in ignore_subs_set:
+                        continue # Skip if ignore list exists and sub is in it
+
+                    # Format entry if filters pass
                     timestamp = row.get('modified_utc_iso') or row.get('created_utc_iso', 'UNKNOWN_DATE')
                     body_cleaned = row.get('body', '[NO BODY]').replace('<br>', ' ').strip() or '[No Body]'
                     permalink = row.get('permalink', 'UNKNOWN_PERMALINK').strip()
                     full_permalink = f"https://www.reddit.com{permalink}" if permalink.startswith('/') else permalink
                     entry = (f"--- COMMENT START ---\n"
-                             f"Date: {timestamp.strip()}\n"
+                             f"Date: {timestamp.strip()}\n" # Date used for filtering later
                              f"Subreddit: /r/{row.get('subreddit', 'N/A')}\n"
                              f"Permalink: {full_permalink}\n"
                              f"Body:\n{body_cleaned}\n"
                              f"--- COMMENT END ---")
-                    entries.append(entry); comments_added += 1
-        except Exception as e: logging.error(f"      ❌ Error processing comments CSV {CYAN}{comments_csv}{RESET}: {e}", exc_info=True)
+                    entries.append(entry); comments_kept_count += 1 # Count kept comments
+
+        except Exception as e: logging.error(f"      ❌ Error processing comments CSV {CYAN}{comments_csv}{RESET}: {e}", exc_info=True); return False # Return False on error
+        logging.debug(f"         Loaded {comments_read} comment rows, kept {comments_kept_count} after subreddit filters.")
+
 
     prep_duration = time.time() - start_time
-    logging.info(f"   ✅ Analysis Prep ({BOLD}Raw Mode{RESET}): Prepared {len(entries)} potential entries from {posts_read+comments_read} rows ({prep_duration:.2f}s).")
-    logging.info(f"      (Posts added: {posts_added}, Comments added: {comments_added} after subreddit filter, before date filter)")
+    logging.info(f"   ✅ Analysis Prep ({BOLD}Raw Mode{RESET}): Prepared {len(entries)} potential entries ({prep_duration:.2f}s) after subreddit filters.")
+    logging.info(f"      (Total rows read: {posts_read+comments_read}. Kept after sub filters: Posts={posts_kept_count}, Comments={comments_kept_count})")
 
     # --- APPLY DATE FILTER to assembled `entries` list ---
     final_entries = _apply_date_filter_to_entries(entries, date_filter)
