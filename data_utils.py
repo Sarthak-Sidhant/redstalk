@@ -3,13 +3,21 @@ import logging
 import json
 import os
 from datetime import datetime, timezone
+from typing import List, Optional, Tuple # Import typing for clarity
+
 # Import necessary functions from other utils
 from reddit_utils import get_modification_date, format_timestamp # Ensure these are available
 
 # Import ANSI codes
 CYAN = "\033[36m"; RESET = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"; YELLOW = "\033[33m"
 
-def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf')), subreddit_filter=None): # Added subreddit_filter
+def extract_csvs_from_json(
+    json_path: str,
+    output_prefix: str,
+    date_filter: Tuple[float, float] = (0, float('inf')),
+    focus_subreddits: Optional[List[str]] = None, # NEW
+    ignore_subreddits: Optional[List[str]] = None  # NEW
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Extracts posts and comments from JSON to CSV, applying optional filters.
 
@@ -17,25 +25,40 @@ def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf'
         json_path (str): Path to the input JSON file.
         output_prefix (str): Prefix for the output CSV filenames.
         date_filter (tuple): A tuple (start_timestamp, end_timestamp) for date filtering.
-        subreddit_filter (str | None): Lowercase subreddit name to filter by, or None.
+        focus_subreddits (list[str] | None): List of subreddits to *include*. If None, include all.
+        ignore_subreddits (list[str] | None): List of subreddits to *exclude*. If None, exclude none.
+
+    Returns:
+        tuple(str | None, str | None): Paths to the created posts and comments CSV files, or None if not created/empty.
     """
     posts_csv_path = f"{output_prefix}-posts.csv"
     comments_csv_path = f"{output_prefix}-comments.csv"
     posts_written, comments_written = 0, 0
     posts_filtered_date, comments_filtered_date = 0, 0
-    posts_filtered_sub, comments_filtered_sub = 0, 0
+    posts_filtered_sub, comments_filtered_sub = 0, 0 # Counts items filtered by EITHER focus or ignore
     posts_skipped_invalid, comments_skipped_invalid = 0, 0
     posts_csv_created, comments_csv_created = False, False
     start_ts, end_ts = date_filter
 
     logging.info(f"   ⚙️ Extracting data from {CYAN}{json_path}{RESET} to CSV files...")
+
     # Log filters being applied
+    filter_log_parts = []
     if start_ts > 0 or end_ts != float('inf'):
         start_str = datetime.fromtimestamp(start_ts, timezone.utc).strftime('%Y-%m-%d') if start_ts > 0 else 'Beginning'
         end_str = datetime.fromtimestamp(end_ts - 1, timezone.utc).strftime('%Y-%m-%d') if end_ts != float('inf') else 'End'
-        logging.info(f"      Applying date filter: {start_str} to {end_str} (UTC, based on modification time)")
-    if subreddit_filter:
-        logging.info(f"      Applying subreddit filter: /r/{subreddit_filter}")
+        filter_log_parts.append(f"Date: {start_str} to {end_str} (UTC)")
+    if focus_subreddits:
+        filter_log_parts.append(f"Focusing on: {focus_subreddits}")
+    if ignore_subreddits:
+        filter_log_parts.append(f"Ignoring: {ignore_subreddits}")
+
+    if filter_log_parts:
+        logging.info(f"      Applying Filters: {'; '.join(filter_log_parts)}")
+
+    # --- Pre-process filter lists for efficient lookup ---
+    focus_lower_set = {sub.lower() for sub in focus_subreddits} if focus_subreddits else None
+    ignore_lower_set = {sub.lower() for sub in ignore_subreddits} if ignore_subreddits else None
 
 
     try:
@@ -70,11 +93,18 @@ def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf'
                          posts_filtered_date += 1; continue
 
                     edata = entry_data['data']
-                    subreddit = edata.get('subreddit', '')
+                    item_subreddit_lower = edata.get('subreddit', '').lower()
 
-                    # --- Subreddit Filtering ---
-                    if subreddit_filter and subreddit.lower() != subreddit_filter:
-                         posts_filtered_sub += 1; continue
+                    # --- Combined Subreddit Filtering ---
+                    # Apply focus filter (if provided): MUST be in focus_lower_set
+                    focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
+                    # Apply ignore filter (if provided): MUST NOT be in ignore_lower_set
+                    ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
+
+                    # Keep item ONLY if it passes BOTH checks
+                    if not (focus_match and ignore_match):
+                        posts_filtered_sub += 1 # Increment the combined sub filter counter
+                        continue
 
                     # --- Extract remaining data ---
                     title = edata.get('title', '')
@@ -83,28 +113,30 @@ def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf'
                     created_utc = edata.get('created_utc', 0)
                     created_iso = format_timestamp(created_utc)
                     modified_iso = format_timestamp(modified_utc_ts)
+                    subreddit = edata.get('subreddit', '') # Get original case for CSV
                     score = edata.get('score', 0)
                     num_comments = edata.get('num_comments', 0)
                     link_flair = edata.get('link_flair_text', '') # Get link flair
 
                     post_writer.writerow([title, selftext, permalink, created_iso, modified_iso, subreddit, score, num_comments, link_flair])
                     posts_written += 1
-                    # if (i + 1) % 500 == 0: logging.debug(f"         ... processed {i+1} posts for CSV ...") # Less verbose
 
             if posts_written > 0:
                 logging.info(f"      📄 Created posts CSV: {CYAN}{posts_csv_path}{RESET} ({posts_written} posts written)")
                 posts_csv_created = True
             if posts_filtered_date > 0 or posts_filtered_sub > 0 or posts_skipped_invalid > 0:
-                 logging.info(f"         (Filtered: {posts_filtered_date} by date, {posts_filtered_sub} by subreddit. Skipped: {posts_skipped_invalid} invalid)")
+                 logging.info(f"         (Filtered: {posts_filtered_date} by date, {posts_filtered_sub} by subreddit rules. Skipped: {posts_skipped_invalid} invalid)")
                  if posts_written == 0 and os.path.exists(posts_csv_path): # Remove file if filters left it empty
                       try: os.remove(posts_csv_path); logging.info(f"         Removed empty posts CSV file: {CYAN}{posts_csv_path}{RESET}")
                       except OSError as e: logging.warning(f"      ⚠️ Could not remove empty/filtered posts CSV: {e}")
+            elif posts_written == 0:
+                 logging.info("      ℹ️ No posts written (likely due to filters or empty data).")
 
-        # ... (keep error handling) ...
+
         except IOError as e: logging.error(f"      ❌ IOError writing posts CSV {CYAN}{posts_csv_path}{RESET}: {e}"); posts_csv_created = False
         except Exception as e: logging.error(f"      ❌ Unexpected error writing posts CSV {CYAN}{posts_csv_path}{RESET}: {e}"); posts_csv_created = False
-        if not posts_csv_created and os.path.exists(posts_csv_path): 
-            try: os.remove(posts_csv_path) 
+        if not posts_csv_created and os.path.exists(posts_csv_path):
+            try: os.remove(posts_csv_path)
             except OSError: pass
 
     else: logging.info("      ℹ️ No 't3' (posts) data found in JSON.")
@@ -129,11 +161,15 @@ def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf'
                           comments_filtered_date += 1; continue
 
                      edata = entry_data['data']
-                     subreddit = edata.get('subreddit', '')
+                     item_subreddit_lower = edata.get('subreddit', '').lower()
 
-                     # --- Subreddit Filtering ---
-                     if subreddit_filter and subreddit.lower() != subreddit_filter:
-                          comments_filtered_sub += 1; continue
+                     # --- Combined Subreddit Filtering ---
+                     focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
+                     ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
+
+                     if not (focus_match and ignore_match):
+                         comments_filtered_sub += 1 # Increment the combined sub filter counter
+                         continue
 
                      # --- Extract remaining data ---
                      body = edata.get('body', '').replace('\n', ' <br> ').replace('\r', '').replace('\t', ' ')
@@ -141,30 +177,32 @@ def extract_csvs_from_json(json_path, output_prefix, date_filter=(0, float('inf'
                      created_utc = edata.get('created_utc', 0)
                      created_iso = format_timestamp(created_utc)
                      modified_iso = format_timestamp(modified_utc_ts)
+                     subreddit = edata.get('subreddit', '') # Get original case for CSV
                      score = edata.get('score', 0)
                      author_flair = edata.get('author_flair_text', '') # Get author flair
 
                      comment_writer.writerow([body, permalink, created_iso, modified_iso, subreddit, score, author_flair])
                      comments_written += 1
-                     # if (i + 1) % 500 == 0: logging.debug(f"         ... processed {i+1} comments for CSV ...") # Less verbose
 
             if comments_written > 0:
                 logging.info(f"      📄 Created comments CSV: {CYAN}{comments_csv_path}{RESET} ({comments_written} comments written)")
                 comments_csv_created = True
             if comments_filtered_date > 0 or comments_filtered_sub > 0 or comments_skipped_invalid > 0:
-                 logging.info(f"         (Filtered: {comments_filtered_date} by date, {comments_filtered_sub} by subreddit. Skipped: {comments_skipped_invalid} invalid)")
+                 logging.info(f"         (Filtered: {comments_filtered_date} by date, {comments_filtered_sub} by subreddit rules. Skipped: {comments_skipped_invalid} invalid)")
                  if comments_written == 0 and os.path.exists(comments_csv_path): # Remove file if filters left it empty
                       try: os.remove(comments_csv_path); logging.info(f"         Removed empty comments CSV file: {CYAN}{comments_csv_path}{RESET}")
                       except OSError as e: logging.warning(f"      ⚠️ Could not remove empty/filtered comments CSV: {e}")
+            elif comments_written == 0:
+                 logging.info("      ℹ️ No comments written (likely due to filters or empty data).")
 
-        # ... (keep error handling) ...
         except IOError as e: logging.error(f"      ❌ IOError writing comments CSV {CYAN}{comments_csv_path}{RESET}: {e}"); comments_csv_created = False
         except Exception as e: logging.error(f"      ❌ Unexpected error writing comments CSV {CYAN}{comments_csv_path}{RESET}: {e}"); comments_csv_created = False
-        if not comments_csv_created and os.path.exists(comments_csv_path): 
-            try: os.remove(comments_csv_path) 
+        if not comments_csv_created and os.path.exists(comments_csv_path):
+            try: os.remove(comments_csv_path)
             except OSError: pass
 
     else: logging.info("      ℹ️ No 't1' (comments) data found in JSON.")
+
     final_posts_path = posts_csv_path if posts_csv_created else None
     final_comments_path = comments_csv_path if comments_csv_created else None
     logging.info(f"   ✅ CSV Extraction complete.")
