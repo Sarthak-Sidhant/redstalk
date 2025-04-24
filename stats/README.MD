@@ -11,7 +11,7 @@ The `stats` module is designed to perform **comprehensive statistical analysis**
         *   **Loads Data:** Reads the primary user activity data from the specified JSON file (`_load_data_from_json`).
         *   **Applies Filters:** Filters the loaded JSON data *in memory* based on the provided date range and subreddit lists (`_apply_filters_to_data`). This creates the working dataset for calculations.
         *   **Orchestrates Calculations:** Calls the various `_calculate_...` functions within `calculations.py`, passing the *filtered* JSON data or the paths to the corresponding *filtered* CSV files as needed. It aggregates the results into a single `stats_results` dictionary.
-        *   **Handles Dependencies:** Contains initial checks for optional dependencies (Pandas, VADER, NLTK) primarily for logging warnings if features will be skipped. The actual usage and error handling often reside within `calculations.py`.
+        *   **Handles Dependencies:** Contains initial checks for optional dependencies (Pandas, VADER) primarily for logging warnings if features will be skipped. The actual usage and error handling often reside within `calculations.py`.
         *   **Orchestrates Reporting:** Calls `reporting._format_report` to generate the Markdown report content from the `stats_results`.
         *   **Saves Outputs:** Writes the generated Markdown report to the specified file path and saves the `stats_results` dictionary (cleaned of internal keys) to the specified JSON file path.
         *   **Returns:** Returns a success boolean and the calculated `stats_results` dictionary (which might include internal keys like filter info).
@@ -88,7 +88,6 @@ The module calculates a rich set of statistics, including:
     *   Lexical diversity.
     *   Average words per post/comment.
     *   Post types (link vs self).
-    *   Question asking ratio (using NLTK).
 7.  **Engagement & Scores:**
     *   Sum and average scores for posts/comments (within filtered data).
     *   Score distribution (min, max, median, quartiles).
@@ -117,7 +116,6 @@ The module calculates a rich set of statistics, including:
 *   **External (Required by `RedStalk`):** `reddit_utils` (assumed to be in the project structure, providing `format_timestamp`, `get_modification_date`, `_fetch_user_about_data`).
 *   **Optional (for specific stats):**
     *   `vaderSentiment`: For Sentiment Ratio and Sentiment Arc.
-    *   `nltk` (requires `punkt` data download): For Question Ratio.
     *   `pandas`: For Question Ratio and Mention Frequency (reading CSVs efficiently).
 
 **Integration with RedStalk**
