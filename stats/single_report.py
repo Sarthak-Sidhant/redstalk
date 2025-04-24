@@ -80,28 +80,6 @@ try:
 except ImportError:
     vader_available_check = False
     logging.warning(f"{YELLOW}⚠️ VADER sentiment library not found. Sentiment stats (Ratio, Arc) will be skipped.{RESET}")
-
-try:
-    import nltk
-    # Special check for NLTK's 'punkt' tokenizer data, needed by some text processing.
-    # This check does not trigger a download but confirms if the data is present locally.
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk_punkt_available = True
-    except LookupError:
-        nltk_punkt_available = False
-        # Provide instruction on how to download the necessary data
-        logging.warning(f"{YELLOW}⚠️ NLTK 'punkt' data not found. Question Ratio stats might fail or be skipped.{RESET}")
-        logging.warning(f"{YELLOW}   To download, run: python -m nltk.downloader punkt{RESET}")
-    nltk_available_check = True # NLTK library itself is installed
-except ImportError:
-    nltk_available_check = False # NLTK library is not installed
-    nltk_punkt_available = False # Can't have punkt data if nltk isn't installed
-    logging.warning(f"{YELLOW}⚠️ NLTK library not found. Question Ratio stats will be skipped.{RESET}")
-    # Provide combined installation and download instruction
-    logging.warning(f"{YELLOW}   To enable, run: pip install nltk && python -m nltk.downloader punkt{RESET}")
-
-
 # --- Data Loading & Filtering Functions ---
 # These helper functions handle reading the input JSON data and applying filters.
 
