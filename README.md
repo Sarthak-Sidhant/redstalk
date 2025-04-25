@@ -173,7 +173,7 @@ RedStalk uses a `config.json` file for its default settings. There might be one 
     "default_prompt_dir": "prompts",
     "default_chunk_size": 1000000,
     "api_key": "put in your own",
-    "default_model_name": "gemini-1.5-flash",
+    "default_model_name": "gemini-2.0-flash",
     "monitor_interval_seconds": 300,
     "user_agent": "Python:RedStalkScript:v1.9 (by /u/YourRedditUsername)"
 }
@@ -184,9 +184,9 @@ RedStalk uses a `config.json` file for its default settings. There might be one 
   * **`default_output_dir`**: This is where all the user data files (JSON, CSVs, reports) will go by default. It usually makes subdirectories for each username inside this one. Default: `"data"`.
   * **`default_prompt_file`**: If you use `--run-analysis` without specifying a prompt file, it'll look for this file (inside the `default_prompt_dir`). Default: `"default_prompt.txt"`.
   * **`default_prompt_dir`**: The directory where you keep your AI prompt files and where the interactive prompt generator saves new ones. Default: `"prompts"`.
-  * **`default_chunk_size`**: This is roughly the target size in tokens for the chunks of data sent to the Gemini API for AI analysis. The actual size can be a little different. A smaller size might be better for models with smaller context windows or more detailed analysis, while bigger sizes can process more text at once. Note: `1000000` in the example works well for models like `gemini-1.5-flash` which have huge context windows. Adjust this based on the model you pick and what you're trying to do. Default: `1000000`.
+  * **`default_chunk_size`**: This is roughly the target size in tokens for the chunks of data sent to the Gemini API for AI analysis. The actual size can be a little different. A smaller size might be better for models with smaller context windows or more detailed analysis, while bigger sizes can process more text at once. Note: `1000000` in the example works well for models like `gemini-2.0-flash` which have huge context windows. Adjust this based on the model you pick and what you're trying to do. Default: `1000000`.
   * **`api_key`**: **Your Google Gemini API Key.** You *can* put it here, but it's **way more secure** to use the `GOOGLE_API_KEY` environment variable instead.
-  * **`default_model_name`**: Which Google Gemini model you want to use for AI analysis. Models with big context windows like `gemini-1.5-flash` or `gemini-1.5-pro` are recommended. Make sure the model supports your chosen chunk size. Default: `"gemini-1.5-flash"`.
+  * **`default_model_name`**: Which Google Gemini model you want to use for AI analysis. Models with big context windows like `gemini-2.0-flash` or `gemini-1.5-pro` are recommended. Make sure the model supports your chosen chunk size. Default: `"gemini-2.0-flash"`.
   * **`monitor_interval_seconds`**: The default time (in seconds) it waits between checks when you're using the `--monitor` mode. Default: `300` (that's 5 minutes).
   *   **`user_agent`**: **THIS IS SUPER IMPORTANT!** 🚨 **You ABSOLUTELY MUST set a unique and descriptive User-Agent string here, and it HAS to include your Reddit username.** This isn't optional, it's a requirement from the Reddit API Terms of Service. Swap out `/u/YourRedditUsername` with your actual Reddit username. Example: `"MyRedditAnalysisBot/1.0 (by /u/YourUsername)"`. If you don't set a proper User-Agent, Reddit might limit your requests or block you entirely.
 
