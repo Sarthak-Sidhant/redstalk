@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RedStalk 🕵️‍♀️ - Advanced Reddit User Analysis</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Roboto:wght@400;700&display=swap');
+
+        :root {
+            --bg-color: #1a1a1d; /* Dark background */
+            /* --text-color: #c5c6c7; /* Old Light grey text */
+            --text-color: #b8e994; /* NEW: White-tinted green */
+            --header-color: #ffffff; /* White headers */
+            --accent-color: #ff4500; /* Reddit Orange-Red accent */
+            --accent-color-rgb: 255, 69, 0; /* Accent color in RGB for rgba() */
+            --code-bg: #2c2c31; /* Darker code background */
+            --button-bg: var(--accent-color);
+            --button-text: #ffffff;
+            --link-color: var(--accent-color);
+            --border-color: #444;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            /* Animation: Add fade-in */
+            opacity: 0;
+            animation: fadeInBody 0.8s 0.2s ease-out forwards;
+        }
+
+        /* Animation: Keyframes for fade-in */
+        @keyframes fadeInBody {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes growUnderline {
+             from { transform: scaleX(0); }
+             to { transform: scaleX(1); }
+        }
+
+
+        .container {
+            max-width: 800px;
+            width: 90%;
+            padding: 20px;
+            margin: 20px auto;
+            background-color: #222225; /* Slightly lighter dark shade for content area */
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        header h1 {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 2.8em;
+            color: var(--header-color);
+            margin-bottom: 10px;
+        }
+
+        header h1 span { /* Emoji styling */
+             display: inline-block;
+             margin-left: 5px;
+             filter: grayscale(30%) contrast(110%);
+             transition: transform 0.3s ease; /* Animation: slight grow on hover */
+        }
+        header h1:hover span {
+            transform: scale(1.1); /* Animation: slight grow on hover */
+        }
+
+
+        header .tagline {
+            font-size: 1.2em;
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        h2 {
+            font-family: 'Roboto Mono', monospace;
+            color: var(--header-color);
+            /* border-bottom: 2px solid var(--accent-color); /* Old static border */
+            border-bottom: none; /* Remove static border for animation */
+            padding-bottom: 8px; /* Adjusted padding */
+            margin-top: 40px;
+            margin-bottom: 20px;
+            position: relative; /* Needed for pseudo-element */
+            display: inline-block; /* Fit content width for underline */
+        }
+
+        /* Animation: Animated underline for H2 */
+        h2::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            bottom: 0px; /* Position right below the text */
+            width: 100%;
+            height: 2px;
+            background-color: var(--accent-color);
+            transform: scaleX(0); /* Initially hidden */
+            transform-origin: left; /* Grow from the left */
+            animation: growUnderline 0.6s 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards; /* Add delay */
+        }
+
+
+        p, ul {
+            margin-bottom: 20px;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        ul li {
+            background-color: var(--code-bg);
+            margin-bottom: 10px;
+            padding: 10px 15px;
+            border-radius: 4px;
+            border-left: 3px solid var(--accent-color);
+            /* Animation: Add transition for hover effect */
+            transition: transform 0.25s ease-out, box-shadow 0.25s ease-out;
+        }
+
+        /* Animation: Hover effect for list items */
+        ul li:hover {
+             transform: translateX(5px) scale(1.02); /* Slight shift right and scale up */
+             box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3); /* Subtle shadow increase */
+             cursor: default; /* Indicate non-clickable hover */
+        }
+
+
+        strong {
+             /* Use header color for better contrast against green */
+            color: var(--header-color);
+            font-weight: 700;
+        }
+
+        code {
+            font-family: 'Roboto Mono', monospace;
+            background-color: var(--code-bg);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            color: #d1ffd7; /* Light green tint for code */
+            border: 1px solid #444; /* Slight border for definition */
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.2); /* Subtle inner shadow */
+        }
+
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #d1ffd7; /* Light green tint for code */
+            border: none;
+        }
+
+        .github-button {
+            display: block;
+            width: max-content;
+            margin: 40px auto 20px auto;
+            padding: 15px 35px;
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            font-size: 1.3em;
+            font-weight: bold;
+            text-decoration: none;
+            border-radius: 5px;
+            text-align: center;
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease; /* Added box-shadow transition */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Animation: Enhanced button hover */
+        .github-button:hover {
+            background-color: #e03d00; /* Darker shade on hover */
+            transform: translateY(-3px); /* Slightly more lift */
+             /* More pronounced shadow using accent color */
+            box-shadow: 0 8px 20px rgba(var(--accent-color-rgb), 0.45);
+        }
+
+        a {
+            color: var(--link-color);
+            text-decoration: none;
+            transition: color 0.2s ease; /* Smooth color transition for links */
+        }
+
+        a:hover {
+            text-decoration: underline;
+            color: #ff704d; /* Slightly lighter orange on hover */
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.9em;
+            color: #8a9a8c; /* Adjusted footer color to match green tint */
+        }
+
+        footer a {
+             color: #a0b0a2; /* Adjusted footer link color */
+        }
+
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 2.2em;
+            }
+            header .tagline {
+                font-size: 1em;
+            }
+            h2 {
+                font-size: 1.5em;
+            }
+            .github-button {
+                font-size: 1.1em;
+                padding: 12px 25px;
+            }
+             /* Disable list item hover translate on mobile if it feels jumpy */
+             ul li:hover {
+                 transform: scale(1.01); /* Keep scale but remove translate */
+             }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>RedStalk <span>🕵️‍♀️</span></h1>
+            <p class="tagline">Your Advanced Command-Line Toolkit for Deep Reddit User Analysis.</p>
+        </header>
+
+        <section id="what-is-it">
+            <h2>What is RedStalk?</h2>
+            <p>
+                Ever wondered what patterns lie hidden in public Reddit activity? <strong>RedStalk</strong> is a powerful, command-line tool designed for in-depth analysis of Reddit users based on their publicly available posts and comments.
+            </p>
+            <p>
+                It intelligently scrapes data, allows granular filtering, performs comprehensive statistical analysis, and leverages Google's Gemini AI for qualitative insights. Dive deep into user interests, communication styles, sentiment trends, and more. Perfect for researchers, data analysts, or anyone curious about online community dynamics.
+            </p>
+        </section>
+
+        <section id="features">
+            <h2>Key Features</h2>
+            <ul>
+                <li><strong>Efficient Scraping:</strong> Smart incremental fetching only grabs new data, saving time and API calls.</li>
+                <li><strong>Powerful Filtering:</strong> Zero in on activity by date ranges or specific subreddits (inclusion/exclusion).</li>
+                <li><strong>Rich Statistical Reports:</strong> Get detailed Markdown reports covering activity timelines, subreddit engagement, content metrics, sentiment analysis (VADER), and more.</li>
+                <li><strong>AI-Powered Insights:</strong> Utilize Google Gemini with custom prompts for narrative summaries, personality profiling, topic analysis, and writing style assessment.</li>
+                <li><strong>User Comparison:</strong> Generate side-by-side statistical comparisons of two users.</li>
+                <li><strong>Background Monitoring:</strong> Keep tabs on a user and automatically update their data when new activity occurs.</li>
+                <li><strong>Multiple Outputs:</strong> Exports raw data (JSON), filtered data (CSV), and analysis reports (Markdown).</li>
+                <li><strong>Configurable & Flexible:</strong> Manage settings via <code>config.json</code> or command-line flags.</li>
+            </ul>
+        </section>
+
+        <a href="https://github.com/sarthak-sidhant/redstalk" target="_blank" class="github-button">
+            Explore RedStalk on GitHub →
+        </a>
+
+        <section id="installation">
+            <h2>Installation</h2>
+            <p>Get RedStalk running on your system in a few steps:</p>
+
+            <p><strong>1. Prerequisites:</strong></p>
+            <ul>
+                <li>Python 3.8+</li>
+                <li>pip (Python package installer)</li>
+                <li>git</li>
+            </ul>
+
+            <p><strong>2. Clone the Repository:</strong></p>
+            <pre><code>git clone https://github.com/sarthak-sidhant/redstalk.git
+cd redstalk</code></pre>
+
+            <p><strong>3. Set Up Virtual Environment (Recommended):</strong></p>
+            <pre><code># Create environment
+python -m venv venv
+
+# Activate it
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate</code></pre>
+
+            <p><strong>4. Create `requirements.txt` and Install Dependencies:</strong></p>
+             <p>Create a file named <code>requirements.txt</code> in the <code>redstalk</code> directory and paste the following content inside it:</p>
+            <pre><code># Core stuff for scraping and files
+requests>=2.25.0
+rich>=10.0.0
+
+# Optional: Install only if using these features
+
+# Needed for AI features (--run-analysis, --summarize-stats, --generate-prompt)
+google-generativeai>=0.3.0
+
+# Needed for Statistical Analysis (--generate-stats, --compare-user)
+vaderSentiment>=3.3.0
+pandas>=1.2.0
+# nltk is also used for stats (install separately if needed via pip install nltk)
+
+# Optional: Progress bars for AI tokenization
+tqdm>=4.60.0</code></pre>
+            <p>Now, install the dependencies:</p>
+            <pre><code>pip install -r requirements.txt</code></pre>
+             <p>(You might also need NLTK data for some stats: run python, then `import nltk; nltk.download('punkt'); nltk.download('vader_lexicon')`)</p>
+
+
+            <p><strong>5. Configuration:</strong></p>
+            <p>
+                Edit the <code>config.json</code> file (create one if it doesn't exist). <strong>Crucially, set a unique <code>user_agent</code> including your Reddit username</strong> as required by Reddit API terms. Set your Google Gemini API key securely (environment variable <code>GOOGLE_API_KEY</code> is recommended).
+            </p>
+            <p>
+                You're ready to start analyzing! Check the full <a href="https://github.com/sarthak-sidhant/redstalk/blob/main/README.md" target="_blank">README on GitHub</a> for detailed usage instructions and examples.
+            </p>
+        </section>
+
+
+        <footer>
+            <p>RedStalk v1.9.6 - Use Responsibly & Ethically.</p>
+            <p>Refer to the <a href="https://github.com/sarthak-sidhant/redstalk/blob/main/LICENSE" target="_blank">License (AGPLv3)</a> and <a href="https://github.com/sarthak-sidhant/redstalk/blob/main/README.md#disclaimer-and-ethical-considerations-" target="_blank">Disclaimer</a> on GitHub.</p>
+            <p><a href="https://github.com/sarthak-sidhant/redstalk" target="_blank">GitHub Repository</a></p>
+        </footer>
+    </div>
+
+</body>
+</html>
