@@ -23,7 +23,6 @@ Whether you're looking into online communities for research, a data analyst chec
     * [Cloning the Repository](#cloning-the-repository)
     * [Virtual Environment (Recommended)](#virtual-environment-recommended)
     * [Installing Dependencies](#installing-dependencies)
-    * [Downloading NLTK Data (Optional)](#downloading-nltk-data-optional---for-stats)
 4.  [Configuration](#configuration) ⚙️
     * [Key `config.json` Settings](#key-configjson-settings)
     * [Setting your Google Gemini API Key](#setting-your-google-gemini-api-key)
@@ -423,7 +422,6 @@ The stats report covers quite a few things:
       *   Total word count in their posts and comments.
       *   Lexical diversity (Type-Token Ratio) – kinda shows how rich their vocabulary might be.
       *   Breakdown of whether their posts were self-text or link posts.
-      *   An estimated ratio of how many times they asked questions (using NLTK).
   *   **Engagement Metrics:**
       *   Average upvotes per post/comment.
       *   Total/Average awards received.
@@ -516,7 +514,7 @@ Here's a quick look at what's happening under the hood:
 5.  **Doing the Stats (`stats/` package):**
     *   Comes into play when you use `--generate-stats` or `--compare-user`.
     *   Reads the filtered data (sometimes from CSVs because it's faster for some calculations).
-    *   `calculations.py`: This is where all the functions live that compute those statistical metrics from the data. It uses optional dependencies like `vaderSentiment`, `nltk`, and `pandas`.
+    *   `calculations.py`: This is where all the functions live that compute those statistical metrics from the data. It uses optional dependencies like `vaderSentiment`, and `pandas`.
     *   `reporting.py`: Takes the results from `calculations.py` and formats them into a structured Markdown report for a single user.
     *   `comparison.py`: Loads stats for two users (either from those pre-saved JSON files or by running calculations if needed), figures out things like overlap, and makes that side-by-side Markdown comparison report.
 6.  **Running the AI Analysis (`analysis.py`, `ai_utils.py`):**
@@ -547,7 +545,6 @@ What does RedStalk rely on?
       *   `tqdm`: Shows those cool progress bars when it's counting tokens for AI analysis, so you know it's working on big datasets.
   *   **Statistics Features (Optional):**
       *   `vaderSentiment`: A sentiment analysis tool that's designed for social media text. Used for sentiment metrics in the stats report.
-      *   `nltk`: The Natural Language Toolkit. Helps with breaking text into words/sentences and other basic text stuff, especially for estimating that question ratio. Needs you to download some extra data (`punkt`).
       *   `pandas`: A really strong library for handling data. Used in some stats calculations (especially with CSVs) for efficient data manipulation and analysis.
 
 ## Contributing 🤗
