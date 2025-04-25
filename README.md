@@ -617,16 +617,27 @@ Here are some ideas for stuff that could be added to RedStalk down the road:
 ~~1.  **Sentiment Arc:** (Simple NLP) - Show how sentiment changes over time.~~
 ~~2.  **Question Asking Ratio:** (Simple NLP) - Estimate how often a user asks questions.~~
 ~~3.  **Mention Frequency:** (Simple NLP) - List the users/subreddits they mention most.~~
+
 4.  **AI Subreddit Categorization:** (Potential AI) - Use AI to group subreddits into broader categories.
+
 5.  **AI Topic Modeling / Keyword Extraction:** (Potential AI) - Get the AI to find key topics and keywords in their text.
+
 6.  **AI Behavioral Trait Identification:** (Potential AI) - Ask the AI to identify traits based on text (like "helpful").
+
 7.  **Reply Depth Analysis:** (Deeper Interaction) - Look at how deep their comments go in reply chains.
+
 8.  **Content Originality Estimate:** (Deeper Interaction) - Compare engagement for self posts vs. link posts to get an idea.
+
 9.  **Interactive Console Stats:** (Utility) - Show the stats right in the terminal using `rich` instead of saving to a file.
+
 10. **Sentiment Trajectory Analysis:** (Advanced) - More detailed look at sentiment trends, maybe per-subreddit.
+
 11. **Linguistic Style Markers & Consistency:** (Advanced) - Analyze things like sentence length, punctuation, caps, etc., and see how consistent their style is, maybe across subreddits.
+
 12. **Interaction Role Tendencies:** (Advanced AI Assist) - Use AI to estimate if they tend to be more of a question-asker, answer-giver, etc., in different subs.
+
 13. **Subreddit Persona Comparison:** (Advanced AI Assist) - Run AI analysis *separately* on text from different top subs and compare the AI's character profiles.
+
 14. **"Rabbit Hole" / Topic Burst Detector:** (Advanced) - Find times when they have a concentrated burst of activity in just one subreddit over a short period.
 
 Got any other cool ideas? Open an issue on the GitHub repo and let us know! 👇
