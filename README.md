@@ -1,3 +1,4 @@
+![image](https://github.com/user-attachments/assets/18cf5aec-faf4-4c55-8935-5f027ad37f05)
 ***
 
 # RedStalk v1.9.6 🕵️‍♀️ - Advanced Reddit User Activity Analysis
