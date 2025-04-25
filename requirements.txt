@@ -1,0 +1,12 @@
+# Core stuff for scraping and files
+requests>=2.25.0
+rich>=10.0.0 # Makes the logging look nice with colors and progress bars
+# Optional stuff - Install only if you plan to use these features
+
+# Need this for all AI features (--run-analysis, --summarize-stats, --generate-prompt)
+google-generativeai>=0.3.0
+# Need this for Statistical Analysis (--generate-stats, --compare-user)
+vaderSentiment>=3.3.0       # For that VADER sentiment analysis
+pandas>=1.2.0               # Helps with data handling in some calculations
+# Optional, but good for seeing progress during AI analysis
+tqdm>=4.60.0 # Might get installed automatically by google-generativeai anyway, but listing it clearly
