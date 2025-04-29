@@ -614,9 +614,11 @@ If you're still stuck after checking these things, please open an issue on the G
 
 Here are some ideas for stuff that could be added to RedStalk down the road:
 
-~~1.  **Sentiment Arc:** (Simple NLP) - Show how sentiment changes over time.~~
-~~2.  **Question Asking Ratio:** (Simple NLP) - Estimate how often a user asks questions.~~
-~~3.  **Mention Frequency:** (Simple NLP) - List the users/subreddits they mention most.~~
+~~1.  **Sentiment Arc:** (Simple NLP) - Show how sentiment changes over time.~~ (only monthly and yearly for now) <br>
+
+~~2.  **Question Asking Ratio:** (Simple NLP) - Estimate how often a user asks questions.~~ <br>
+
+~~3.  **Mention Frequency:** (Simple NLP) - List the users/subreddits they mention most.~~ <br>
 
 4.  **AI Subreddit Categorization:** (Potential AI) - Use AI to group subreddits into broader categories.
 
