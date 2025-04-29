@@ -433,6 +433,8 @@ def generate_stats_report(
         stats_results["word_frequency"] = calc._calculate_word_frequency(posts_csv_path, comments_csv_path, top_n=top_n_words)
         stats_results['ngram_frequency'] = calc._calculate_ngram_frequency(posts_csv_path, comments_csv_path, n_values=ngram_n_values, top_k=ngram_top_k)
         stats_results["sentiment_ratio"] = calc._calculate_sentiment_ratio(posts_csv_path, comments_csv_path)
+        stats_results['reply_depth'] = calc._calculate_reply_depth(comments_csv_path)
+
 
         # --- NEW Calculations ---
         # Sentiment Arc: Uses filtered JSON data (in-memory dict) and the specified time window parameter.

@@ -1561,11 +1561,12 @@ def _calculate_activity_burstiness(data):
 
     return results
 
-# --- NEW: Sentiment Arc Calculation ---
+from collections import defaultdict # Ensure this is imported
+
 def _calculate_sentiment_arc(filtered_data, time_window='monthly'):
     """
     Calculates the average VADER sentiment compound score for posts and comments
-    over defined time windows (e.g., monthly or yearly). Provides a time-series
+    over defined time windows (e.g., weekly, monthly or yearly). Provides a time-series
     view of sentiment. Requires the vaderSentiment library.
 
     Args:
@@ -1573,11 +1574,11 @@ def _calculate_sentiment_arc(filtered_data, time_window='monthly'):
                               This function reads text and creation timestamps
                               directly from this structure.
         time_window (str): The time window to aggregate sentiment over.
-                           Accepted values: 'monthly', 'yearly'. Defaults to 'monthly'.
+                           Accepted values: 'weekly', 'monthly', 'yearly'. Defaults to 'monthly'.
 
     Returns:
         dict: A dictionary containing the time-series sentiment data mapping
-              window keys (e.g., "YYYY-MM", "YYYY") to average compound scores.
+              window keys (e.g., "YYYY-WW", "YYYY-MM", "YYYY") to average compound scores.
               Also includes analysis status and reason if skipped.
     """
     logging.debug(f"      Calculating sentiment arc ({time_window})...")
@@ -1596,7 +1597,7 @@ def _calculate_sentiment_arc(filtered_data, time_window='monthly'):
         return results
 
     # Double check if the Analyzer class is available
-    if not SentimentIntensityAnalyzer:
+    if not SentimentIntensityAnalyzer: # Assuming SentimentIntensityAnalyzer is imported globally or checked
         results["reason"] = "VADER Analyzer class unavailable"
         if vader_available:
             logging.warning(f"{YELLOW}⚠️ Skipping sentiment arc: VADER lib import seemed ok, but class unavailable.{RESET}")
@@ -1613,90 +1614,76 @@ def _calculate_sentiment_arc(filtered_data, time_window='monthly'):
         results["reason"] = f"VADER Analyzer initialization failed: {e}";
         return results
 
-    # Use defaultdict to easily group scores by time window
     sentiment_by_window = defaultdict(list)
     items_processed = 0
     items_with_errors = 0
 
     # --- Process items from the filtered data dictionary ---
-    # Iterate through both posts and comments
     for kind in ["t3", "t1"]:
         for item_id, item in filtered_data.get(kind, {}).items():
             try:
                 item_data = item.get("data", {})
-                # Use CREATION time for consistency with temporal stats and arcs
-                ts = _get_timestamp(item_data, use_edited=False)
+                ts = _get_timestamp(item_data, use_edited=False) # Assuming _get_timestamp exists
                 if not (ts and ts > 0):
-                    # Skip items with invalid or zero timestamps
-                    # logging.debug(f"         Skipping item {item_id} for sentiment arc due to zero/invalid timestamp.")
                     continue
 
-                # Extract text content based on item type
                 text = ""
-                if kind == "t1": # Comment
-                    text = item_data.get('body', '')
-                elif kind == "t3": # Post
+                if kind == "t1": text = item_data.get('body', '')
+                elif kind == "t3":
                     title = item_data.get('title', '')
                     selftext = item_data.get('selftext', '')
-                    # Combine title and selftext for post analysis
                     text = f"{title} {selftext}".strip()
 
-                # Perform basic cleaning and skip empty/placeholder text
                 text = text.replace('<br>', ' ').strip()
                 if not text or text.lower() in ('[deleted]', '[removed]', '[no body]', '[no title]'):
-                    # logging.debug(f"         Skipping item {item_id} for sentiment arc: empty or placeholder text.")
-                    continue # Skip items with no meaningful text
+                    continue
 
-                # Calculate sentiment using VADER
                 vs = analyzer.polarity_scores(text)
-                compound_score = vs['compound'] # We use the compound score for the overall sentiment
+                compound_score = vs['compound']
 
-                # Determine the time window key based on the item's timestamp
                 dt = datetime.fromtimestamp(ts, timezone.utc)
-                if time_window == 'monthly':
+
+                
+                if time_window == 'weekly':
+                    # %G = Year for ISO week, %V = ISO week number (01-53)
+                    window_key = dt.strftime('%G-%V') # e.g., "2023-42"
+                elif time_window == 'monthly':
                     window_key = dt.strftime('%Y-%m') # e.g., "2023-10"
                 elif time_window == 'yearly':
                     window_key = dt.strftime('%Y') # e.g., "2023"
                 else:
-                    # Handle invalid time_window input, default to monthly
                     logging.warning(f"      ⚠️ Invalid time window '{time_window}' for sentiment arc, defaulting to 'monthly'.")
                     window_key = dt.strftime('%Y-%m')
-                    time_window = 'monthly' # Update the window_type stored in results
+                    time_window = 'monthly' 
+                
 
-                # Add the compound score to the list for this time window
                 sentiment_by_window[window_key].append(compound_score)
                 items_processed += 1
 
             except Exception as e:
-                # Log any unexpected errors during item processing for sentiment
                 logging.warning(f"      ⚠️ Error processing item {item_id} for sentiment arc: {e}")
                 items_with_errors += 1
-                continue # Continue processing other items
+                continue
 
-    # --- Aggregate scores and calculate average per window ---
     if items_processed == 0:
-        # If no items had valid text and timestamps for analysis
         results["reason"] = "No valid items found in filtered data for analysis"
         logging.warning(f"      ⚠️ No items processed for sentiment arc (Errors: {items_with_errors}).")
         return results
 
     avg_sentiment_arc = {}
-    # Sort the window keys chronologically (e.g., "2023-01", "2023-02", ...)
+    # Lexicographical sort works for "YYYY-MM" and "YYYY" and "YYYY-WW" formats
     sorted_windows = sorted(sentiment_by_window.keys())
 
-    # Calculate the average score for each time window
     for window in sorted_windows:
         scores = sentiment_by_window[window]
-        if scores: # This list should not be empty due to defaultdict usage, but safe check
+        if scores:
             avg_score = sum(scores) / len(scores)
-            avg_sentiment_arc[window] = round(avg_score, 3) # Store average score rounded to 3 decimal places
-        # If a window somehow had no scores (e.g., filter resulted in no items for a month),
-        # it won't appear in the final avg_sentiment_arc dict, which is desired.
+            avg_sentiment_arc[window] = round(avg_score, 3)
 
-    # --- Final results ---
     results["sentiment_arc_data"] = avg_sentiment_arc
-    results["analysis_performed"] = True # Mark as successfully performed
-    results["window_type"] = time_window # Store the actual window used in the output
+    results["analysis_performed"] = True
+    # Update window_type in case it defaulted
+    results["window_type"] = time_window
     logging.debug(f"         Sentiment arc calculated for {len(avg_sentiment_arc)} windows ({items_processed} items processed, {items_with_errors} errors encountered).")
 
     return results
@@ -2009,4 +1996,145 @@ def _calculate_mention_frequency(posts_csv_path, comments_csv_path, top_n=20):
     results["analysis_performed"] = True # Mark as successfully performed
 
     logging.debug(f"         Mention frequency calculated: Found {len(user_mentions)} unique users mentioned ({total_user_instances} total instances), {len(subreddit_mentions)} unique subs mentioned ({total_subreddit_instances} total instances).")
+    return results
+
+from typing import List, Optional, Dict, Any, Tuple
+# --- NEW: Reply Depth Calculation ---
+def _calculate_reply_depth(comments_csv_path: Optional[str]) -> Dict[str, Any]:
+    """
+    Calculates the depth of user's comments within reply chains.
+    Depth 0: Top-level comment replying directly to a post (parent_id starts with 't3_').
+    Depth 1: Reply to a top-level comment (parent_id is 't1_', parent's parent_id is 't3_').
+    Depth N: Reply to a comment at depth N-1.
+
+    Requires pandas library to read the CSV efficiently.
+
+    Args:
+        comments_csv_path (Optional[str]): Path to the filtered comments CSV file.
+                                           Expected columns: 'id', 'parent_id'.
+
+    Returns:
+        dict: A dictionary containing reply depth statistics:
+              - total_comments_analyzed (int): Number of comments processed.
+              - average_depth (float | str): Average depth of comments, or 'N/A'.
+              - max_depth (int | str): Maximum depth reached, or 'N/A'.
+              - depth_distribution (dict): Counts of comments at each depth level (e.g., {0: 10, 1: 5}).
+              - analysis_performed (bool): Flag indicating if the analysis ran.
+              - reason (str): Reason if analysis was skipped (e.g., missing dependency, no data).
+    """
+    logging.debug("      Calculating reply depth...")
+    results = {
+        "total_comments_analyzed": 0,
+        "average_depth": "N/A",
+        "max_depth": "N/A",
+        "depth_distribution": {},
+        "analysis_performed": False,
+        "reason": ""
+    }
+
+    # --- Dependency Check ---
+    if not pandas_available:
+        results["reason"] = "Pandas library not installed or import failed"
+        logging.warning(f"      ⚠️ Skipping reply depth: Pandas library not available.")
+        return results
+    if not comments_csv_path or not os.path.exists(comments_csv_path):
+        results["reason"] = "Comments CSV file not found or path invalid"
+        logging.warning(f"      ⚠️ Skipping reply depth: Comments CSV file not found at {comments_csv_path}")
+        return results
+
+    try:
+        # --- Read Data ---
+        df = pd.read_csv(comments_csv_path, usecols=['id', 'parent_id'])
+        if df.empty:
+            results["reason"] = "Comments CSV is empty"
+            logging.warning("      ⚠️ Skipping reply depth: Comments CSV file is empty.")
+            # Mark as performed but with no data, consistent with other stats
+            results["analysis_performed"] = True
+            return results
+
+        # Ensure required columns are present
+        if 'id' not in df.columns or 'parent_id' not in df.columns:
+             results["reason"] = "Comments CSV missing required 'id' or 'parent_id' columns"
+             logging.warning(f"      ⚠️ Skipping reply depth: Comments CSV missing required columns.")
+             return results
+
+        # Drop rows where id or parent_id might be NaN/missing (shouldn't happen with API data but safety check)
+        df.dropna(subset=['id', 'parent_id'], inplace=True)
+        if df.empty:
+             results["reason"] = "No valid comment entries after cleaning NaN IDs"
+             logging.warning("      ⚠️ Skipping reply depth: No valid comments found after cleaning.")
+             results["analysis_performed"] = True # Considered performed, just no data
+             return results
+
+        logging.debug(f"         Read {len(df)} comments from CSV for depth analysis.")
+
+        # --- Build Parent Lookup Map ---
+        # Create a dictionary mapping comment_id -> parent_id for fast lookups
+        # Ensure IDs are strings, as pandas might infer types
+        parent_map = df.set_index('id')['parent_id'].astype(str).to_dict()
+        logging.debug(f"         Built parent map with {len(parent_map)} entries.")
+
+        # --- Calculate Depth for Each Comment ---
+        comment_depths = []
+        processed_count = 0
+        error_count = 0
+        max_depth_check = 100 # Safety break for potential cycles (highly unlikely)
+
+        for comment_id in df['id'].astype(str): # Iterate through the user's comment IDs from the CSV
+            depth = 0
+            current_id = comment_id
+            try:
+                for _ in range(max_depth_check): # Loop with safety break
+                    parent = parent_map.get(current_id)
+
+                    # Stop conditions:
+                    # 1. No parent found in our map (reached top of fetched thread or an orphan)
+                    # 2. Parent is a post ('t3_...') - this means current_id is Depth 0
+                    if parent is None or parent.startswith('t3_'):
+                        break
+
+                    # If parent is another comment ('t1_...'), increment depth and continue up
+                    if parent.startswith('t1_'):
+                        depth += 1
+                        current_id = parent # Move up the chain
+                    else:
+                        # Should not happen if parent_id format is consistent, but log if it does
+                        logging.warning(f"         Unexpected parent_id format '{parent}' for comment {current_id}. Stopping depth trace.")
+                        break # Stop tracing on unexpected format
+
+                comment_depths.append(depth)
+                processed_count += 1
+            except Exception as e:
+                 logging.warning(f"         Error calculating depth for comment {comment_id}: {e}")
+                 error_count += 1
+                 continue # Skip to next comment on error
+
+        results["total_comments_analyzed"] = processed_count
+
+        if not comment_depths:
+            results["reason"] = "No comment depths could be calculated"
+            logging.warning("      ⚠️ No comment depths calculated, possibly due to errors or data structure.")
+            results["analysis_performed"] = True # Mark as performed, but no results
+            return results
+
+        # --- Calculate Statistics ---
+        results["average_depth"] = round(statistics.mean(comment_depths), 2) if comment_depths else 0
+        results["max_depth"] = max(comment_depths) if comment_depths else 0
+        # Use Counter to get the distribution {depth: count}
+        results["depth_distribution"] = dict(Counter(comment_depths))
+
+        results["analysis_performed"] = True
+        logging.debug(f"         Reply depth calculated ({processed_count} comments processed, {error_count} errors). Avg Depth: {results['average_depth']}, Max Depth: {results['max_depth']}")
+
+    except FileNotFoundError:
+        results["reason"] = f"Comments CSV file not found at {comments_csv_path}"
+        logging.error(f"   ❌ Error calculating reply depth: File not found: {comments_csv_path}")
+    except pd.errors.EmptyDataError:
+        results["reason"] = "Comments CSV file is empty"
+        logging.warning(f"      ⚠️ Skipping reply depth: Pandas read an empty CSV file at {comments_csv_path}.")
+        results["analysis_performed"] = True # Consistent handling: analysis ran but found no data
+    except Exception as e:
+        results["reason"] = f"Unexpected error during calculation: {e}"
+        logging.error(f"   ❌ Unexpected error calculating reply depth: {e}", exc_info=True)
+
     return results

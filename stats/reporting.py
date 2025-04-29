@@ -184,7 +184,7 @@ def _format_report(
         reason = q_stats.get("reason", "Unknown reason")
         report += f"| Question Asking Ratio   | *Skipped ({reason})* |\n"
     # --- End Question Ratio Add ---
-
+    
     # Report post types (link vs self posts)
     post_types = stats_data.get('post_types', {}) # Get post_types dict
     report += f"| Link Posts              | {post_types.get('link_posts', 'N/A')} |\n"
@@ -227,6 +227,44 @@ def _format_report(
     report += f"* Average Edit Delay: {edit_stats.get('average_edit_delay_formatted', 'N/A')} ({edit_stats.get('average_edit_delay_seconds', 'N/A')}s)\n"
     report += "\n"
 
+    
+    # --- NEW: Reply Depth Analysis ---
+    report += "**Reply Depth Analysis:**\n"
+    depth_stats = stats_data.get('reply_depth', {}) # Get the results dict
+
+    # Check if the analysis was performed
+    if depth_stats.get('analysis_performed'):
+        total_analyzed = depth_stats.get('total_comments_analyzed', 'N/A')
+        avg_depth = depth_stats.get('average_depth', 'N/A')
+        max_d = depth_stats.get('max_depth', 'N/A')
+        distribution = depth_stats.get('depth_distribution', {})
+
+        # Report summary stats
+        report += f"* Total Comments Analyzed for Depth: {total_analyzed}\n"
+        # Format average depth if it's a number
+        avg_depth_str = f"{avg_depth:.2f}" if isinstance(avg_depth, (int, float)) else 'N/A'
+        report += f"* Average Reply Depth: {avg_depth_str}\n"
+        report += f"* Maximum Reply Depth Reached: {max_d}\n"
+
+        # Report distribution if available
+        if distribution:
+            report += "* Distribution (Depth: Count):\n"
+            # Sort by depth level for consistent reporting
+            for depth_level, count in sorted(distribution.items()):
+                report += f"  * Depth {depth_level}: {count} comments\n"
+        else:
+             # Handle case where analysis ran but found no depths (e.g., only top-level comments but calculation had issue)
+             if total_analyzed == 0:
+                  report += "* No comments found in CSV for depth analysis.\n"
+             else:
+                  report += "* Depth distribution data not available.\n"
+
+    else:
+        # If analysis was skipped, report the reason
+        reason = depth_stats.get("reason", "Unknown reason")
+        report += f"* *Skipped ({reason})*\n"
+    report += "\n" # Add spacing after the subsection
+    
     # Content Removal/Deletion Sub-section
     rd_stats = stats_data.get('removal_deletion_stats', {}) # Get removal_deletion_stats dict
     report += "**Content Removal/Deletion Estimate:**\n"

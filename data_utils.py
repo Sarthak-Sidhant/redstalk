@@ -16,7 +16,17 @@ from typing import List, Optional, Tuple # Imports for type hints, improving cod
 
 # Import necessary functions from other utils
 # These functions are assumed to be available in the project structure.
-from reddit_utils import get_modification_date, format_timestamp # Utility functions for date handling
+# Using a try-except block to handle potential import errors gracefully.
+try:
+    from reddit_utils import get_modification_date, format_timestamp # Utility functions for date handling
+    REDDIT_UTILS_AVAILABLE = True
+except ImportError:
+    logging.warning("Could not import from reddit_utils. Date handling might be limited.")
+    REDDIT_UTILS_AVAILABLE = False
+    # Define dummy functions if reddit_utils is unavailable to prevent crashes
+    def get_modification_date(entry): return 0
+    def format_timestamp(ts): return "DATE_ERROR"
+
 
 # Import ANSI codes for coloring output messages in the console.
 CYAN = "\033[36m"; RESET = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"; YELLOW = "\033[33m"
@@ -127,196 +137,169 @@ def extract_csvs_from_json(
         return None, None # Return None if the structure is unexpected
 
     # --- Define CSV Fieldnames ---
-    # These are the column headers for the output CSV files.
-    # They should correspond to the data extracted from the JSON entries.
-    # Added 'subreddit', 'score', 'num_comments' (posts), 'link_flair_text' (posts), 'author_flair_text' (comments).
-    post_fieldnames = ['title', 'selftext', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'num_comments', 'link_flair_text']
-    comment_fieldnames = ['body', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'author_flair_text']
+    # Added 'is_self' to posts; Added 'id' and 'parent_id' to comments.
+    post_fieldnames = ['title', 'selftext', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'num_comments', 'link_flair_text', 'is_self']
+    comment_fieldnames = ['id', 'parent_id', 'body', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'author_flair_text'] # <-- Added id, parent_id
 
     # --- Write Posts CSV ---
-    # Check if the JSON data contains a 't3' key (representing posts) and if it's a non-empty dictionary.
     if "t3" in data and isinstance(data.get("t3"), dict) and data["t3"]:
         logging.debug(f"      Processing {len(data['t3'])} posts (t3) for CSV...")
         try:
-            # Open the posts CSV file for writing. 'newline=''' is important to prevent blank rows.
             with open(posts_csv_path, 'w', newline='', encoding='utf-8') as pfile:
-                post_writer = csv.writer(pfile, quoting=csv.QUOTE_MINIMAL) # Use QUOTE_MINIMAL for handling commas/quotes in text
-                post_writer.writerow(post_fieldnames) # Write the header row
+                post_writer = csv.writer(pfile, quoting=csv.QUOTE_MINIMAL)
+                post_writer.writerow(post_fieldnames)
 
-                # Iterate through each post entry in the 't3' dictionary.
                 for i, (entry_id, entry_data) in enumerate(data["t3"].items()):
-                    # Basic validation of entry structure.
                     if not isinstance(entry_data, dict) or 'data' not in entry_data or not isinstance(entry_data['data'], dict):
-                        posts_skipped_invalid += 1; continue # Skip invalid entries and count them
+                        posts_skipped_invalid += 1; continue
 
-                    # Get the modification timestamp using the utility function. Skip if it fails.
-                    modified_utc_ts = get_modification_date(entry_data)
-                    if modified_utc_ts == 0: # get_modification_date returns 0 on failure
-                        posts_skipped_invalid += 1; continue # Skip entries with no valid timestamp
+                    # Check if reddit_utils is available for date functions
+                    if not REDDIT_UTILS_AVAILABLE:
+                         logging.warning("Skipping date filtering/formatting due to missing reddit_utils.");
+                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0) # Fallback to created_utc
+                         created_utc = modified_utc_ts
+                    else:
+                         modified_utc_ts = get_modification_date(entry_data)
+                         created_utc = entry_data.get('data',{}).get('created_utc', 0)
 
-                    # --- Date Filtering ---
-                    # Check if the item's timestamp falls within the specified date range [start_ts, end_ts).
+                    if modified_utc_ts == 0:
+                        posts_skipped_invalid += 1; continue
+
                     if not (start_ts <= modified_utc_ts < end_ts):
-                         posts_filtered_date += 1; continue # Skip if outside date range and count it
+                         posts_filtered_date += 1; continue
 
-                    # Get the actual data payload of the Reddit item.
                     edata = entry_data['data']
-                    item_subreddit_lower = edata.get('subreddit', '').lower() # Get subreddit lowercase for filtering
+                    item_subreddit_lower = edata.get('subreddit', '').lower()
 
-                    # --- Combined Subreddit Filtering ---
-                    # Check if the item's subreddit is in the focus list OR if there is no focus list.
                     focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
-                    # Check if the item's subreddit is NOT in the ignore list OR if there is no ignore list.
                     ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
 
-                    # An item is kept ONLY if it passes BOTH the focus and ignore filter checks.
                     if not (focus_match and ignore_match):
-                        posts_filtered_sub += 1 # Increment the combined sub filter counter
-                        continue # Skip this item
+                        posts_filtered_sub += 1
+                        continue
 
-                    # --- Extract remaining data fields ---
-                    # Extract fields from the item's data payload (edata). Use get() with default values
-                    # to handle missing fields gracefully.
                     title = edata.get('title', '')
-                    # Replace newlines and carriage returns in selftext with '<br>' and spaces for single CSV row.
                     selftext = edata.get('selftext', '').replace('\n', ' <br> ').replace('\r', '').replace('\t', ' ')
                     permalink = edata.get('permalink', '')
-                    created_utc = edata.get('created_utc', 0)
-                    created_iso = format_timestamp(created_utc) # Format timestamps to ISO 8601 string
+                    created_iso = format_timestamp(created_utc) # Format timestamps
                     modified_iso = format_timestamp(modified_utc_ts)
-                    subreddit = edata.get('subreddit', '') # Get original case for CSV column
+                    subreddit = edata.get('subreddit', '')
                     score = edata.get('score', 0)
                     num_comments = edata.get('num_comments', 0)
-                    link_flair = edata.get('link_flair_text', '') # Extract link flair text
+                    link_flair = edata.get('link_flair_text', '')
+                    is_self = edata.get('is_self', False) # Extract is_self boolean
 
-                    # Write the extracted data as a row in the CSV file.
-                    post_writer.writerow([title, selftext, permalink, created_iso, modified_iso, subreddit, score, num_comments, link_flair])
-                    posts_written += 1 # Increment the count of posts successfully written
+                    post_writer.writerow([title, selftext, permalink, created_iso, modified_iso, subreddit, score, num_comments, link_flair, is_self])
+                    posts_written += 1
 
-            # --- Post-writing checks and logging for Posts CSV ---
             if posts_written > 0:
                 logging.info(f"      📄 Created posts CSV: {CYAN}{posts_csv_path}{RESET} ({posts_written} posts written)")
-                posts_csv_created = True # Set flag indicating the CSV was created and is non-empty
-            # Log summary of filtered/skipped posts if any occurred.
+                posts_csv_created = True
             if posts_filtered_date > 0 or posts_filtered_sub > 0 or posts_skipped_invalid > 0:
-                 logging.info(f"         (Filtered: {posts_filtered_date} by date, {posts_filtered_sub} by subreddit rules. Skipped: {posts_skipped_invalid} invalid)")
-                 # If no posts were written BUT the file exists (meaning it was created but remained empty after headers/filters), remove it.
+                 logging.info(f"         (Filtered Posts: {posts_filtered_date} date, {posts_filtered_sub} sub. Skipped: {posts_skipped_invalid} invalid)")
                  if posts_written == 0 and os.path.exists(posts_csv_path):
                       try: os.remove(posts_csv_path); logging.info(f"         Removed empty posts CSV file: {CYAN}{posts_csv_path}{RESET}")
-                      except OSError as e: logging.warning(f"      ⚠️ Could not remove empty/filtered posts CSV: {e}") # Log error if removal fails
-            # If no posts were written at all (file might not have been created or was empty), log info.
+                      except OSError as e: logging.warning(f"      ⚠️ Could not remove empty/filtered posts CSV: {e}")
             elif posts_written == 0:
                  logging.info("      ℹ️ No posts written (likely due to filters or empty data).")
 
-
         except IOError as e:
-            # Handle errors specifically related to file writing.
             logging.error(f"      ❌ IOError writing posts CSV {CYAN}{posts_csv_path}{RESET}: {e}", exc_info=True);
-            posts_csv_created = False # Ensure flag is False on error
+            posts_csv_created = False
         except Exception as e:
-            # Handle any other unexpected errors during post processing.
             logging.error(f"      ❌ Unexpected error writing posts CSV {CYAN}{posts_csv_path}{RESET}: {e}", exc_info=True);
-            posts_csv_created = False # Ensure flag is False on error
+            posts_csv_created = False
 
-        # Clean up the posts CSV file if it was not successfully created (e.g., error occurred after opening but before writing).
         if not posts_csv_created and os.path.exists(posts_csv_path):
             try: os.remove(posts_csv_path)
-            except OSError: pass # Ignore errors during cleanup
+            except OSError: pass
 
     else:
-        # Log if no 't3' data was found in the JSON initially.
         logging.info("      ℹ️ No 't3' (posts) data found in JSON.")
 
     # --- Write Comments CSV ---
-    # Check if the JSON data contains a 't1' key (representing comments) and if it's a non-empty dictionary.
     if "t1" in data and isinstance(data.get("t1"), dict) and data["t1"]:
         logging.debug(f"      Processing {len(data['t1'])} comments (t1) for CSV...")
         try:
-            # Open the comments CSV file for writing.
             with open(comments_csv_path, 'w', newline='', encoding='utf-8') as cfile:
-                comment_writer = csv.writer(cfile, quoting=csv.QUOTE_MINIMAL) # Use QUOTE_MINIMAL
-                comment_writer.writerow(comment_fieldnames) # Write the header row
+                comment_writer = csv.writer(cfile, quoting=csv.QUOTE_MINIMAL)
+                comment_writer.writerow(comment_fieldnames) # Write the header row with new fields
 
-                # Iterate through each comment entry in the 't1' dictionary.
                 for i, (entry_id, entry_data) in enumerate(data["t1"].items()):
-                     # Basic validation of entry structure.
                      if not isinstance(entry_data, dict) or 'data' not in entry_data or not isinstance(entry_data['data'], dict):
-                         comments_skipped_invalid += 1; continue # Skip invalid
+                         comments_skipped_invalid += 1; continue
 
-                     # Get the modification timestamp. Skip if it fails.
-                     modified_utc_ts = get_modification_date(entry_data)
+                     # Check if reddit_utils is available for date functions
+                     if not REDDIT_UTILS_AVAILABLE:
+                         logging.warning("Skipping date filtering/formatting due to missing reddit_utils.");
+                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0) # Fallback to created_utc
+                         created_utc = modified_utc_ts
+                     else:
+                         modified_utc_ts = get_modification_date(entry_data)
+                         created_utc = entry_data.get('data',{}).get('created_utc', 0)
+
                      if modified_utc_ts == 0:
-                         comments_skipped_invalid += 1; continue # Skip entries with no valid timestamp
+                         comments_skipped_invalid += 1; continue
 
-                     # --- Date Filtering ---
-                     # Check if the item's timestamp is within the date range.
                      if not (start_ts <= modified_utc_ts < end_ts):
-                          comments_filtered_date += 1; continue # Skip if outside date range
+                          comments_filtered_date += 1; continue
 
-                     # Get the data payload.
                      edata = entry_data['data']
-                     item_subreddit_lower = edata.get('subreddit', '').lower() # Get subreddit lowercase
+                     item_subreddit_lower = edata.get('subreddit', '').lower()
 
-                     # --- Combined Subreddit Filtering ---
-                     # Apply focus and ignore filters similar to posts.
                      focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
                      ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
 
-                     # Keep item ONLY if it passes BOTH checks.
                      if not (focus_match and ignore_match):
-                         comments_filtered_sub += 1 # Increment combined sub filter counter
-                         continue # Skip this item
+                         comments_filtered_sub += 1
+                         continue
 
-                     # --- Extract remaining data fields ---
-                     # Extract fields from the item's data payload. Replace newlines/tabs with spaces/breaks.
+                     # --- Extract fields for comment CSV ---
+                     # *** NEW: Extract id and parent_id ***
+                     comment_id = edata.get('id', '')  # Get the comment's own ID
+                     # Note: Reddit API uses 'name' field for the full ID (e.g., t1_...)
+                     # Using edata.get('name') might be more robust if 'id' only contains the base36 part.
+                     # Let's assume 'name' is the full ID for consistency.
+                     full_comment_id = edata.get('name', f't1_{comment_id}') # Prefer 'name', fallback using 'id'
+                     parent_id = edata.get('parent_id', '') # Get the ID of the parent item (e.g., t3_..., t1_...)
+
                      body = edata.get('body', '').replace('\n', ' <br> ').replace('\r', '').replace('\t', ' ')
                      permalink = edata.get('permalink', '')
-                     created_utc = edata.get('created_utc', 0)
                      created_iso = format_timestamp(created_utc)
                      modified_iso = format_timestamp(modified_utc_ts)
-                     subreddit = edata.get('subreddit', '') # Original case
+                     subreddit = edata.get('subreddit', '')
                      score = edata.get('score', 0)
-                     author_flair = edata.get('author_flair_text', '') # Extract author flair text
+                     author_flair = edata.get('author_flair_text', '')
 
-                     # Write the extracted data as a row.
-                     comment_writer.writerow([body, permalink, created_iso, modified_iso, subreddit, score, author_flair])
-                     comments_written += 1 # Increment written count
+                     # *** Write row with new fields in the correct order ***
+                     comment_writer.writerow([full_comment_id, parent_id, body, permalink, created_iso, modified_iso, subreddit, score, author_flair])
+                     comments_written += 1
 
-            # --- Post-writing checks and logging for Comments CSV ---
             if comments_written > 0:
                 logging.info(f"      📄 Created comments CSV: {CYAN}{comments_csv_path}{RESET} ({comments_written} comments written)")
-                comments_csv_created = True # Set flag if CSV was created and non-empty
-            # Log summary of filtered/skipped comments if any occurred.
+                comments_csv_created = True
             if comments_filtered_date > 0 or comments_filtered_sub > 0 or comments_skipped_invalid > 0:
-                 logging.info(f"         (Filtered: {comments_filtered_date} by date, {comments_filtered_sub} by subreddit rules. Skipped: {comments_skipped_invalid} invalid)")
-                 # If no comments were written BUT the file exists, remove it.
+                 logging.info(f"         (Filtered Comments: {comments_filtered_date} date, {comments_filtered_sub} sub. Skipped: {comments_skipped_invalid} invalid)")
                  if comments_written == 0 and os.path.exists(comments_csv_path):
                       try: os.remove(comments_csv_path); logging.info(f"         Removed empty comments CSV file: {CYAN}{comments_csv_path}{RESET}")
                       except OSError as e: logging.warning(f"      ⚠️ Could not remove empty/filtered comments CSV: {e}")
-            # If no comments were written at all, log info.
             elif comments_written == 0:
                  logging.info("      ℹ️ No comments written (likely due to filters or empty data).")
 
         except IOError as e:
-            # Handle file writing errors for comments CSV.
             logging.error(f"      ❌ IOError writing comments CSV {CYAN}{comments_csv_path}{RESET}: {e}", exc_info=True);
             comments_csv_created = False
         except Exception as e:
-            # Handle other unexpected errors during comment processing.
             logging.error(f"      ❌ Unexpected error writing comments CSV {CYAN}{comments_csv_path}{RESET}: {e}", exc_info=True);
             comments_csv_created = False
 
-        # Clean up the comments CSV file if it was not successfully created.
         if not comments_csv_created and os.path.exists(comments_csv_path):
             try: os.remove(comments_csv_path)
-            except OSError: pass # Ignore errors during cleanup
+            except OSError: pass
 
     else:
-        # Log if no 't1' data was found in the JSON initially.
         logging.info("      ℹ️ No 't1' (comments) data found in JSON.")
 
-    # --- Return Results ---
-    # Return the paths to the created CSV files. If a file wasn't created (e.g., due to filters), return None for that path.
     final_posts_path = posts_csv_path if posts_csv_created else None
     final_comments_path = comments_csv_path if comments_csv_created else None
     logging.info(f"   ✅ CSV Extraction complete.")
