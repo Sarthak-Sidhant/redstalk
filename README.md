@@ -626,13 +626,13 @@ Here are some ideas for stuff that could be added to RedStalk down the road:
 
 6.  **AI Behavioral Trait Identification:** (Potential AI) - Ask the AI to identify traits based on text (like "helpful").
 
-7.  **Reply Depth Analysis:** (Deeper Interaction) - Look at how deep their comments go in reply chains.
+~~7.  **Reply Depth Analysis:** (Deeper Interaction) - Look at how deep their comments go in reply chains.~~
 
 8.  **Content Originality Estimate:** (Deeper Interaction) - Compare engagement for self posts vs. link posts to get an idea.
 
 9.  **Interactive Console Stats:** (Utility) - Show the stats right in the terminal using `rich` instead of saving to a file.
 
-10. **Sentiment Trajectory Analysis:** (Advanced) - More detailed look at sentiment trends, maybe per-subreddit.
+10. **Sentiment Trajectory Analysis:** (Advanced) - More detailed look at sentiment trends, maybe per-subreddit. (update: weekly pushed without flags)
 
 11. **Linguistic Style Markers & Consistency:** (Advanced) - Analyze things like sentence length, punctuation, caps, etc., and see how consistent their style is, maybe across subreddits.
 
