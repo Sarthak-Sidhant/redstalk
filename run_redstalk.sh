@@ -49,9 +49,9 @@ export -f redstalk  # <--- EXPORT THE FUNCTION
 echo "--------------------------------------------------"
 echo "Setup complete. You are now in the RedStalk directory with the venv active."
 # Update the instructions - it behaves like an alias for the user
-echo "Function defined: Type 'rstalk' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
-echo "Function defined: Type 'redstalk' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
+echo "Function defined: Type 'rstalk' or 'redstalk' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
 echo "Example: rstalk SomeUser --generate-stats"                      # <--- EXAMPLE ADDED
+echo "or"
 echo "Example: redstalk SomeUser --generate-stats"                      # <--- EXAMPLE ADDED
 echo "Type 'exit' or press Ctrl+D to leave this environment and return to your original shell."
 echo "--------------------------------------------------"
