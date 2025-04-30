@@ -30,19 +30,29 @@ else
 fi
 
 # --- Define and Export the function HERE ---
-echo "Defining function 'rs' for 'python redstalk.py'..."
-rs() {
-    # Execute the python script, passing all arguments given to 'rs'
+echo "Defining function 'rstalk' for 'python redstalk.py'..."
+rstalk() {
+    # Execute the python script, passing all arguments given to 'rstalk'
     python redstalk.py "$@"
 }
-export -f rs  # <--- EXPORT THE FUNCTION
+export -f rstalk  # <--- EXPORT THE FUNCTION
+
+# --- Defining Another Alias
+echo "Defining function 'redstalk' for 'python redstalk.py'..."
+redstalk() {
+    # Execute the python script, passing all arguments given to 'rstalk'
+    python redstalk.py "$@"
+}
+export -f redstalk  # <--- EXPORT THE FUNCTION
 # -----------------------------------------
 
 echo "--------------------------------------------------"
 echo "Setup complete. You are now in the RedStalk directory with the venv active."
 # Update the instructions - it behaves like an alias for the user
-echo "Function defined: Type 'rs' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
-echo "Example: rs SomeUser --generate-stats"                      # <--- EXAMPLE ADDED
+echo "Function defined: Type 'rstalk' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
+echo "Function defined: Type 'redstalk' instead of 'python redstalk.py'" # <--- UPDATED MESSAGE
+echo "Example: rstalk SomeUser --generate-stats"                      # <--- EXAMPLE ADDED
+echo "Example: redstalk SomeUser --generate-stats"                      # <--- EXAMPLE ADDED
 echo "Type 'exit' or press Ctrl+D to leave this environment and return to your original shell."
 echo "--------------------------------------------------"
 
