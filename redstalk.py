@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # redstalk.py
 """
 Redstalk is a command-line tool for scraping Reddit user activity
@@ -20,14 +20,21 @@ import re # For using regular expressions (used here for date parsing in argpars
 import time # For time-related functions (used for timing AI summary)
 import json # For saving statistics data in JSON format
 
+# --- Import PRAW ---
+# Needs to be imported to initialize the Reddit instance
+import praw
+import prawcore
+
 # --- Import Utilities ---
 # Configuration loading and saving utilities
 from config_utils import load_config, save_config, DEFAULT_CONFIG
 # Reddit data scraping and handling utilities
+# Now expects praw_instance: save_reddit_data(..., praw_instance, ...), _fetch_user_about_data(..., praw_instance)
 from reddit_utils import save_reddit_data, _fetch_user_about_data
 # Data extraction and preparation utilities (JSON to CSV)
-from data_utils import extract_csvs_from_json # Note: The import signature might look different from its definition, but the usage later reflects the actual signature.
+from data_utils import extract_csvs_from_json
 # User monitoring functionality
+# Now expects praw_instance: monitor_user(..., praw_instance, ...)
 from monitoring import monitor_user
 
 # Import statistics generation functions. Wrapped in a try/except
@@ -104,12 +111,13 @@ def setup_logging(log_level_str):
     # Add the handler to the root logger.
     root_logger.addHandler(ch)
 
-    # For less verbose output at lower debug levels, silence chatty libraries like requests and urllib3.
+    # For less verbose output at lower debug levels, silence chatty libraries.
     if log_level > logging.DEBUG:
         logging.getLogger("requests").setLevel(logging.WARNING);
         logging.getLogger("urllib3").setLevel(logging.WARNING);
         logging.getLogger("google.generativeai").setLevel(logging.WARNING)
-        logging.getLogger("vaderSentiment").setLevel(logging.WARNING) # Add vaderSentiment if used in stats
+        logging.getLogger("prawcore").setLevel(logging.INFO) # Show PRAW info but hide debug
+        if stats_available: logging.getLogger("vaderSentiment").setLevel(logging.WARNING) # Add vaderSentiment if used in stats
 
     logging.debug(f"Logging initialized at level: {log_level_str}")
 
@@ -129,55 +137,55 @@ def valid_date(s):
         msg = f"Not a valid date: '{s}'. Expected format YYYY-MM-DD."
         raise argparse.ArgumentTypeError(msg)
 
-# --- RESTORED Helper Function for Processing Single User for Comparison ---
-def process_single_user_for_stats(username, config, args):
+# --- Helper Function for Processing Single User for Comparison ---
+# Needs the PRAW instance now
+def process_single_user_for_stats(username, config, args, praw_instance):
     """
     Handles the full data processing pipeline (scrape, CSV conversion, about fetch,
     stats calculation) for a single user *without* applying date/subreddit filters
     during CSV conversion or stats calculation.
 
-    This is specifically designed as a helper for the --compare-user command
-    where the base stats for comparison should cover the entire available
-    unfiltered dataset.
-
     Args:
         username (str): The Reddit username to process.
         config (dict): The application configuration.
         args (argparse.Namespace): The parsed command-line arguments.
+        praw_instance (praw.Reddit): The authenticated PRAW instance.
 
     Returns:
         A dictionary containing the calculated statistics data for the user,
         or None if any step in the processing pipeline fails critically.
     """
     logging.info(f"--- {BOLD}Processing User for Comparison: /u/{username}{RESET} ---")
-    # Construct the user-specific data directory path and ensure it exists.
     user_data_dir = os.path.join(args.output_dir, username);
     os.makedirs(user_data_dir, exist_ok=True)
-
-    # Determine sorting preference for scraping from arguments.
     sort_descending = (args.sort_order == "descending")
+    stats_results_data = None
+    user_about_data = None
+    success = False
 
-    # Initialize variables to store results.
-    stats_results_data = None # Will hold the dictionary of stats results
-    user_about_data = None    # Will hold the user's 'about' data
-    success = False           # Flag to track overall success of the steps
+    # Check if praw_instance is valid before proceeding
+    if not isinstance(praw_instance, praw.Reddit):
+        logging.error(f"   ❌ Invalid PRAW instance provided to process_single_user_for_stats for {username}. Cannot proceed.")
+        return None
 
     try:
         # 1. Scrape/Update User Data (JSON)
         logging.info(f"   ⚙️ Running data fetch/update for /u/{BOLD}{username}{RESET}...")
-        # Call save_reddit_data to fetch new data and merge/update the JSON file.
-        # Pass relevant arguments from the parsed args.
-        json_path_actual = save_reddit_data(user_data_dir, username, config, sort_descending, args.scrape_comments_only, args.force_scrape)
+        # Pass praw_instance instead of config
+        json_path_actual = save_reddit_data(
+            user_data_dir=user_data_dir,
+            username=username,
+            praw_instance=praw_instance, # Pass the PRAW instance
+            sort_descending=sort_descending,
+            scrape_comments_only=args.scrape_comments_only,
+            force_scrape=args.force_scrape
+        )
 
-        # Verify the JSON file exists after the scrape attempt.
         if not json_path_actual or not os.path.exists(json_path_actual):
-            # If save_reddit_data failed or didn't return a path, check if a file exists at the expected path.
             json_path_expected = os.path.join(user_data_dir, f"{username}.json")
             if not os.path.exists(json_path_expected):
-                # If the file doesn't exist at all, report failure.
                 logging.error(f"   ❌ Scrape/Update failed for {username} and no JSON file found at {CYAN}{json_path_expected}{RESET}. Cannot proceed with comparison for this user.");
-                return None # Indicate failure
-            # If the file exists but save_reddit_data didn't return the path, use the expected path.
+                return None
             json_path_actual = json_path_expected
             logging.warning(f"   ⚠️ Scrape function did not return path, using existing JSON: {CYAN}{json_path_actual}{RESET}")
 
@@ -185,77 +193,62 @@ def process_single_user_for_stats(username, config, args):
 
         # 2. Convert JSON to CSV
         logging.info(f"   ⚙️ Converting JSON to CSV for {username} (unfiltered)...")
-        # Call extract_csvs_from_json to convert the JSON data to CSV files.
-        # *** Crucially, pass None for date and subreddit filters *** to ensure
-        # that the CSVs produced for comparison are based on the full available data.
         posts_csv, comments_csv = extract_csvs_from_json(
-            json_path_actual, # Input JSON path
-            os.path.join(user_data_dir, username), # Output CSV prefix
-            date_filter=(0, float('inf')), # Ensure no date filter applied
-            focus_subreddits=None,         # Ensure no focus subreddit filter applied
-            ignore_subreddits=None         # Ensure no ignore subreddit filter applied
+            json_path_actual,
+            os.path.join(user_data_dir, username),
+            date_filter=(0, float('inf')),
+            focus_subreddits=None,
+            ignore_subreddits=None
         )
-
-        # Determine the actual paths to the created CSV files. If extraction returned None,
-        # assume the file was not created and the expected path won't exist.
-        posts_csv_path = posts_csv # posts_csv is already the full path or None
-        comments_csv_path = comments_csv # comments_csv is already the full path or None
-
-        # Check if at least one CSV file was successfully created.
+        posts_csv_path = posts_csv
+        comments_csv_path = comments_csv
         posts_csv_exists = os.path.exists(posts_csv_path) if posts_csv_path else False
         comments_csv_exists = os.path.exists(comments_csv_path) if comments_csv_path else False
 
         if not posts_csv_exists and not comments_csv_exists:
             logging.error(f"   ❌ CSV conversion failed or produced no files for {username}. Check JSON structure or permissions. Cannot generate stats.")
-            return None # Indicate failure
+            return None
         logging.info(f"   ✅ CSV Conversion successful for {username}.")
 
         # 3. Fetch User About Data
         logging.info(f"   ⚙️ Fetching 'about' data for {username}...")
-        # Call the helper function to fetch the user's 'about' data from Reddit.
-        user_about_data = _fetch_user_about_data(username, config)
-        # Log a warning if fetching about data failed, but continue if possible.
+        # Pass praw_instance instead of config
+        user_about_data = _fetch_user_about_data(username, praw_instance)
         if user_about_data is None:
             logging.warning(f"   ⚠️ Failed to fetch 'about' data for {username}. Some stats might be incomplete.")
         else:
             logging.info(f"   ✅ 'About' data fetched successfully for {username}.")
 
-
         # 4. Generate Statistics (as a dictionary)
         logging.info(f"   ⚙️ Calculating stats for {username} (unfiltered)...")
-        # Call generate_stats_report from the stats package.
-        # *** Again, pass None for date and subreddit filters *** to ensure the stats
-        # reflect the full dataset scraped, regardless of filters applied via CLI
-        # for the main user processing.
+        # generate_stats_report itself doesn't need PRAW, it works off files/data
         stats_success, stats_results_data = generate_stats_report(
-             json_path=json_path_actual, # Input JSON path
-             about_data=user_about_data, # User 'about' data
-             posts_csv_path=posts_csv_path if posts_csv_exists else None, # Pass CSV paths (or None)
+             json_path=json_path_actual,
+             about_data=user_about_data,
+             posts_csv_path=posts_csv_path if posts_csv_exists else None,
              comments_csv_path=comments_csv_path if comments_csv_exists else None,
-             username=username, # Username for context
-             output_path=None, # Do NOT write a standalone MD report for comparison sources
-             stats_json_path=None, # Do NOT write a standalone JSON report for comparison sources
-             date_filter=(0, float('inf')), # Explicitly pass unfiltered date range
-             focus_subreddits=None,         # Explicitly pass None for focus subreddits
-             ignore_subreddits=None,        # Explicitly pass None for ignore subreddits
-             top_n_words=args.top_words, # Pass top words/items counts from args
+             username=username,
+             output_path=None,
+             stats_json_path=None,
+             date_filter=(0, float('inf')),
+             focus_subreddits=None,
+             ignore_subreddits=None,
+             top_n_words=args.top_words,
              top_n_items=args.top_items,
-             write_md_report=False, # Explicitly control flags to prevent writing files
+             write_md_report=False,
              write_json_report=False
         )
 
-        # Check if statistics calculation was successful.
         if not stats_success:
             logging.error(f"   ❌ Statistics generation failed for {username}. Check logs for details.")
-            return None # Indicate failure
+            return None
 
         logging.info(f"--- ✅ {BOLD}Finished Processing for Comparison: /u/{username}{RESET} ---")
-        return stats_results_data # Return the calculated stats dictionary
+        return stats_results_data
 
     except Exception as e:
-        # Catch any unexpected errors during the user processing helper function.
-        logging.error(f"   ❌ Unexpected error processing user {username} for comparison: {e}", exc_info=True) # Log with traceback
-        return None # Indicate failure
+        logging.error(f"   ❌ Unexpected error processing user {username} for comparison: {e}", exc_info=True)
+        return None
 
 
 # --- Main Function ---
@@ -273,7 +266,7 @@ def main():
     # Set up the command-line argument parser.
     parser = argparse.ArgumentParser(
         # Description includes the version and format help.
-        description=f"{BOLD}Redstalk v1.9.0{RESET} (Multiple Subreddit Filters)",
+        description=f"{BOLD}Redstalk v1.9.0{RESET} (Multiple Subreddit Filters & PRAW Integration)",
         # Use ArgumentDefaultsHelpFormatter to show default values in help text.
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
@@ -311,8 +304,8 @@ def main():
     general_group.add_argument("--output-dir", default=current_config['default_output_dir'], help="Base directory for output data.")
     # --log-level: Sets the logging verbosity.
     general_group.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Set logging level.")
-    # --user-agent: Allows overriding the User-Agent string from the command line.
-    general_group.add_argument("--user-agent", default=None, help="Custom User-Agent for Reddit API. Overrides config.")
+    # --praw-site: Argument to specify the PRAW site configuration.
+    general_group.add_argument("--praw-site", default="DEFAULT", help="Name of the site configuration in praw.ini to use.")
 
 
     # --- Data Filtering Options ---
@@ -322,12 +315,10 @@ def main():
     # --end-date: Filters data to include items on or before this date. Uses custom valid_date type.
     filter_group.add_argument("--end-date", type=valid_date, default=None, help="Only analyze activity ON or BEFORE this date (YYYY-MM-DD, UTC).")
     # --focus-subreddit: Lists subreddits to include. Can be specified multiple times.
-    # --- MODIFIED: nargs='+' to allow multiple subreddits ---
     filter_group.add_argument("--focus-subreddit", metavar='SUBREDDIT', default=None, nargs='+',
                               help="Only include activity within these specific subreddits (case-insensitive). Provide multiple names separated by spaces.")
     # --ignore-subreddit: Lists subreddits to exclude. Can be specified multiple times.
-    # --- NEW: Added this argument ---
-    filter_argument = filter_group.add_argument("--ignore-subreddit", metavar='SUBREDDIT', default=None, nargs='+',
+    filter_group.add_argument("--ignore-subreddit", metavar='SUBREDDIT', default=None, nargs='+',
                               help="Exclude activity from these specific subreddits (case-insensitive). Provide multiple names separated by spaces.")
 
 
@@ -342,7 +333,7 @@ def main():
 
 
     # --- AI Analysis Options ---
-    analysis_group = parser.add_argument_group('AI Analysis Options (used with --run-analysis)')
+    analysis_group = parser.add_argument_group('AI Analysis Options (used with --run-analysis or --monitor)')
     # --prompt-file: Path to the system prompt file for AI analysis. Defaults from config.
     analysis_group.add_argument("--prompt-file", default=current_config['default_prompt_file'], help="Path to system prompt text file.")
     # --api-key: Allows specifying the API key directly (lowest priority).
@@ -359,6 +350,8 @@ def main():
     analysis_group.add_argument("--fetch-external-context", action="store_true", help="[Mapped Mode] Fetch titles for external posts (slower).")
     # --summarize-stats: Uses AI to summarize the stats report (requires --generate-stats).
     analysis_group.add_argument("--summarize-stats", action="store_true", help="[Requires --generate-stats] Use AI to generate a summary of the stats report.")
+    # --no-analysis-on-monitor: New flag to disable analysis during monitoring.
+    analysis_group.add_argument("--no-analysis-on-monitor", action="store_true", help="[Monitor Mode] Disable automatic AI analysis when new activity is detected.")
 
 
     # --- Statistics Options ---
@@ -430,7 +423,7 @@ def main():
          # This check might be redundant due to the logic above, but adds robustness.
          parser.error("When providing a username, you must specify at least one processing action: --run-analysis or --generate-stats.")
 
-    # --- NEW: Validate focus/ignore subreddit overlap ---
+    # --- Validate focus/ignore subreddit overlap ---
     # Ensure that no subreddit is present in BOTH the --focus-subreddit and --ignore-subreddit lists.
     if args.focus_subreddit and args.ignore_subreddit:
         focus_set = {sub.lower() for sub in args.focus_subreddit} # Convert lists to lowercase sets
@@ -479,7 +472,6 @@ def main():
         logging.info(f"🎬 Selected action: {BOLD}Process User Data{RESET} ({', '.join(action_details)})")
         logging.info(f"👤 Target username: {BOLD}{username_target}{RESET}")
         # Log which filters are being applied for single-user processing.
-        # --- MODIFIED: Log both focus and ignore filters ---
         if args.focus_subreddit: filter_details.append(f"Focus Subreddits = {', '.join(args.focus_subreddit)}")
         if args.ignore_subreddit: filter_details.append(f"Ignore Subreddits = {', '.join(args.ignore_subreddit)}")
         if args.start_date or args.end_date:
@@ -492,12 +484,45 @@ def main():
     elif action == "export_json_only": logging.info(f"🎬 Selected action: {BOLD}Export JSON Only{RESET}"); logging.info(f"👤 Target username: {BOLD}{username_target}{RESET}")
     elif action: logging.info(f"🎬 Selected action: {BOLD}{action.replace('_', ' ').title()}{RESET}") # Format other actions nicely
 
+    # --- PRAW Initialization ---
+    # Initialize PRAW now that the action is determined.
+    reddit_instance = None # Initialize to None
+    # Check if the determined action requires PRAW
+    praw_needed = action not in ["reset_config", "generate_prompt"] # Prompt gen only needs AI
+
+    if praw_needed:
+        logging.info(f"🔧 {BOLD}Initializing PRAW instance...{RESET} (Using site: '{args.praw_site}')")
+        try:
+            # praw.Reddit() will automatically look for praw.ini or env vars
+            reddit_instance = praw.Reddit(args.praw_site)
+            # Perform a simple read-only check to validate the connection
+            reddit_instance.user.me() # Tries to get authenticated user, None if read-only/unauthenticated
+            logging.info(f"✅ PRAW instance initialized successfully (Read-Only: {reddit_instance.read_only})")
+        except prawcore.exceptions.PrawcoreException as e:
+            logging.critical(f"❌ Failed to initialize PRAW: {e}")
+            logging.critical("   Ensure praw.ini is configured correctly or environment variables are set.")
+            # Exit if PRAW is essential for the chosen action
+            if action in ["compare_users", "monitor", "export_json_only", "process_user_data"]:
+                 logging.critical("   PRAW initialization failed. Cannot continue with the requested action.")
+                 return # Exit main
+            else:
+                 logging.warning("   PRAW initialization failed, but might not be required for the selected action.")
+        except Exception as e: # Catch any other unexpected error during init
+            logging.critical(f"❌ An unexpected error occurred during PRAW initialization: {e}", exc_info=True)
+            if action in ["compare_users", "monitor", "export_json_only", "process_user_data"]:
+                 logging.critical("   PRAW initialization failed. Cannot continue.")
+                 return # Exit main
+    else:
+        logging.info(f"🔧 PRAW instance not required for action '{action}'. Skipping initialization.")
+
 
     # --- Load AI Model (Conditionally) ---
     model = None # Initialize model variable to None
     genai = None # Initialize genai library variable to None
     # Determine if any action requires the AI model.
-    ai_needed = action in ["generate_prompt", "monitor"] or \
+    # Consider the --no-analysis-on-monitor flag
+    ai_needed = action in ["generate_prompt"] or \
+                (action == "monitor" and not args.no_analysis_on_monitor) or \
                 (action == "process_user_data" and args.run_analysis) or \
                 (action == "process_user_data" and args.summarize_stats)
 
@@ -505,8 +530,6 @@ def main():
         logging.info(f"🤖 {BOLD}AI features required. Initializing AI Model...{RESET}")
         try:
             # Attempt to import AI-related modules.
-            # These imports are placed here to avoid errors if the required packages are not installed,
-            # unless an AI action is actually requested.
             from ai_utils import generate_prompt_interactive, perform_ai_analysis # Import functions from ai_utils
             from analysis import generate_mapped_analysis, generate_raw_analysis # Import analysis functions
             import google.generativeai as genai_imported # Import the generativeai library itself
@@ -517,13 +540,15 @@ def main():
             logging.critical(f"❌ Required Python packages for AI functionality not found: {e}")
             logging.critical("   Please install them: pip install google-generativeai")
             # If the requested action *strictly* requires AI (prompt generation, analysis, summary), exit.
-            if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main if AI essential for action
+            if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)) or (action=="monitor" and not args.no_analysis_on_monitor):
+                 logging.critical("   Cannot continue without AI packages for the requested action.")
+                 return # Exit main if AI essential for action
             logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue without AI
 
         # If the genai library was successfully imported:
         if genai:
             # Override config values with command-line arguments if provided.
-            if args.user_agent: current_config['user_agent'] = args.user_agent # User-agent can affect API calls
+            # user_agent handled by PRAW now
             if args.model_name: current_config['default_model_name'] = args.model_name # Override default model name
             if args.monitor_interval: current_config['monitor_interval_seconds'] = args.monitor_interval # Override monitor interval
 
@@ -537,7 +562,9 @@ def main():
                 # If key is missing or is the placeholder, log a critical error.
                 logging.critical(f"❌ API Key missing or placeholder used for action '{BOLD}{action}{RESET}' (Source: {source_indicator}).")
                 # If the requested action *strictly* requires AI, exit.
-                if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main
+                if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)) or (action=="monitor" and not args.no_analysis_on_monitor):
+                     logging.critical("   Cannot continue without API key for the requested action.")
+                     return # Exit main
             else:
                 # If a key is found, attempt to configure the Gemini model.
                 logging.info(f"🔑 Using API key from {BOLD}{source_indicator}{RESET}.")
@@ -553,7 +580,9 @@ def main():
                     logging.critical(f"❌ Failed to configure Gemini model '{BOLD}{model_name_to_use}{RESET}': {e}", exc_info=args.log_level == "DEBUG") # Log traceback if debug level
                     model = None # Set model to None to indicate failure
                     # If the requested action *strictly* requires AI, exit.
-                    if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main
+                    if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)) or (action=="monitor" and not args.no_analysis_on_monitor):
+                         logging.critical("   Cannot continue without a configured AI model for the requested action.")
+                         return # Exit main
                     logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue
 
     else:
@@ -593,14 +622,16 @@ def main():
         elif action == "monitor":
             # Handle the user monitoring action.
             logging.info(f"👀 {BOLD}Starting User Monitoring...{RESET}")
-            if not username_target:
-                # Username is required for monitoring.
-                logging.critical("❌ Username required for monitoring.");
-                return
+            if not username_target: logging.critical("❌ Username required for monitoring."); return
+            if not reddit_instance: logging.critical("❌ PRAW instance required for monitoring but failed to initialize."); return # Check PRAW
 
-            # Log a warning if the AI model isn't available for monitoring (auto-analysis might be disabled).
-            if not model:
-                logging.warning("   ⚠️ AI Model not available for monitoring. Auto-analysis on update will be skipped.")
+            # Auto-analysis is enabled by default unless --no-analysis-on-monitor is used OR AI failed init
+            run_analysis_on_monitor = not args.no_analysis_on_monitor and model is not None
+            if args.no_analysis_on_monitor:
+                 logging.info("   🤖 Automatic analysis on update disabled via --no-analysis-on-monitor.")
+            elif not model and not args.no_analysis_on_monitor: # AI was needed but failed
+                 logging.warning("   ⚠️ AI Model not available. Automatic analysis on update will be skipped.")
+
 
             # Determine the user-specific data directory and ensure it exists.
             user_data_dir = os.path.join(args.output_dir, username_target);
@@ -613,33 +644,24 @@ def main():
                 logging.warning(f"Monitor interval ({monitor_interval}s) is very low. Minimum recommended is 60s. Setting to 60s.")
                 monitor_interval = 60
 
-            # Load the system prompt for analysis (if auto-analysis is enabled in monitoring).
-            prompt_file_path = args.prompt_file;
-            system_prompt = "[Monitor Mode - Prompt Error]" # Default error message
-            try:
-                 logging.info(f"   Loading monitor base prompt from: {CYAN}{prompt_file_path}{RESET}")
-                 # Open and read the system prompt file.
-                 with open(prompt_file_path, "r", encoding="utf-8") as f:
-                     system_prompt = f.read().strip()
-                 if not system_prompt:
-                     logging.warning(f"   ⚠️ Monitor prompt file {CYAN}{prompt_file_path}{RESET} is empty.")
-                 else:
-                    logging.info(f"   ✅ Monitor base prompt loaded ({len(system_prompt)} chars).")
-            except Exception as e:
-                logging.error(f"   ❌ Error reading monitor prompt file {CYAN}{prompt_file_path}{RESET}: {e}")
-                system_prompt = "[Monitor Mode - Prompt Load Failed]" # Error message if prompt loading fails
-
-            # Update config with command-line user-agent if provided.
-            if args.user_agent:
-                 current_config['user_agent'] = args.user_agent
+            # Load the system prompt for analysis (only if auto-analysis might run).
+            system_prompt = "[Monitor Mode - Prompt Not Loaded]" # Default
+            if run_analysis_on_monitor:
+                prompt_file_path = args.prompt_file;
+                try:
+                     logging.info(f"   Loading monitor base prompt from: {CYAN}{prompt_file_path}{RESET}")
+                     with open(prompt_file_path, "r", encoding="utf-8") as f: system_prompt = f.read().strip()
+                     if not system_prompt: logging.warning(f"   ⚠️ Monitor prompt file {CYAN}{prompt_file_path}{RESET} is empty.")
+                     else: logging.info(f"   ✅ Monitor base prompt loaded ({len(system_prompt)} chars).")
+                except Exception as e:
+                    logging.error(f"   ❌ Error reading monitor prompt file {CYAN}{prompt_file_path}{RESET}: {e}")
+                    system_prompt = "[Monitor Mode - Prompt Load Failed]" # Error message if prompt loading fails
 
             # Call the monitor_user function with all relevant arguments.
-            # Pass filter arguments (focus_subreddits, ignore_subreddits) even if
-            # monitor_user doesn't currently use them, in case that functionality is added later.
             monitor_user(
                 username=username_target,
                 user_data_dir=user_data_dir,
-                config=current_config,
+                praw_instance=reddit_instance, # Pass the PRAW instance
                 interval_seconds=monitor_interval,
                 model=model, # Pass the initialized model (can be None)
                 system_prompt=system_prompt,
@@ -648,19 +670,17 @@ def main():
                 analysis_mode=args.analysis_mode,
                 no_cache_titles=args.no_cache_titles,
                 fetch_external_context=args.fetch_external_context,
-                # Pass filter args:
-                focus_subreddits=args.focus_subreddit,
-                ignore_subreddits=args.ignore_subreddit
+                config=current_config, # Pass config separately if needed by analysis inside monitor
+                run_analysis_on_update=run_analysis_on_monitor # Pass the flag explicitly
+                # Filters are not explicitly passed as monitor logic doesn't apply them currently
             )
             logging.info(f"🛑 {BOLD}Monitoring Stopped.{RESET}")
 
         elif action == "export_json_only":
              # Handle the export JSON only action.
              logging.info(f"--- {BOLD}Starting JSON Data Export Only{RESET} ---")
-             if not username_target:
-                 # Username is required for this action.
-                 logging.critical("❌ Username required for export.");
-                 return
+             if not username_target: logging.critical("❌ Username required for export."); return
+             if not reddit_instance: logging.critical("❌ PRAW instance required for export but failed to initialize."); return # Check PRAW
 
              # Determine user data directory and ensure it exists.
              user_data_dir = os.path.join(args.output_dir, username_target);
@@ -669,16 +689,16 @@ def main():
              # Determine sorting order.
              sort_descending = (args.sort_order == "descending")
 
-             # Update config with command-line user-agent if provided.
-             if args.user_agent:
-                 current_config['user_agent'] = args.user_agent
-
              logging.info(f"⚙️ Running data fetch/update for /u/{BOLD}{username_target}{RESET}...")
              # Call save_reddit_data to scrape/update and save the JSON file.
-             # Filters are NOT applied during JSON export; the JSON contains all scraped data.
+             # Pass praw_instance
              json_path_actual = save_reddit_data(
-                 user_data_dir, username_target, current_config,
-                 sort_descending, args.scrape_comments_only, args.force_scrape
+                 user_data_dir=user_data_dir,
+                 username=username_target,
+                 praw_instance=reddit_instance, # Pass PRAW instance
+                 sort_descending=sort_descending,
+                 scrape_comments_only=args.scrape_comments_only,
+                 force_scrape=args.force_scrape
              )
 
              # Log the result of the save operation.
@@ -693,22 +713,17 @@ def main():
         elif action == "compare_users":
             # --- Comparison Workflow ---
             logging.info(f"--- 👥 {BOLD}Starting User Comparison{RESET} ---")
-            # Ensure stats functionality is available before proceeding with comparison.
-            if not stats_available:
-                logging.critical("❌ Comparison requires statistics generation functionality, which is not available. Exiting.")
-                return # Exit if stats module failed to import
+            if not stats_available: logging.critical("❌ Comparison requires statistics generation functionality, which is not available. Exiting."); return
+            if not reddit_instance: logging.critical("❌ PRAW instance required for comparison but failed to initialize."); return # Check PRAW
 
-            # Process the first user to get their unfiltered statistics data.
-            stats1 = process_single_user_for_stats(user1_comp, current_config, args)
-            # Process the second user to get their unfiltered statistics data.
-            stats2 = process_single_user_for_stats(user2_comp, current_config, args)
+            # Pass praw_instance to the helper function
+            stats1 = process_single_user_for_stats(user1_comp, current_config, args, reddit_instance)
+            stats2 = process_single_user_for_stats(user2_comp, current_config, args, reddit_instance)
 
             # If stats data was successfully generated for both users:
             if stats1 and stats2:
                  logging.info(f"   ✅ Data processed for both users. Generating comparison report...")
-                 # Generate a timestamp for the comparison report filename.
                  comp_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                 # Construct the output path for the comparison report MD file.
                  comp_filename = f"comparison_{user1_comp}_vs_{user2_comp}_{comp_timestamp}.md"
                  comp_output_path = os.path.join(args.output_dir, comp_filename)
                  os.makedirs(args.output_dir, exist_ok=True) # Ensure the main output directory exists
@@ -730,10 +745,8 @@ def main():
 
         elif action == "process_user_data":
             # --- Single User Processing Workflow (Scrape -> CSV -> Stats -> Analysis) ---
-            if not username_target:
-                # Username is required for this action.
-                logging.critical("❌ Username required for processing.");
-                return
+            if not username_target: logging.critical("❌ Username required for processing."); return
+            if not reddit_instance: logging.critical("❌ PRAW instance required for processing user data but failed to initialize."); return # Check PRAW
 
             # Determine the user-specific data directory and ensure it exists.
             user_data_dir = os.path.join(args.output_dir, username_target);
@@ -743,8 +756,7 @@ def main():
             # Determine sorting order for saved JSON.
             sort_descending = (args.sort_order == "descending")
 
-            # Prepare date filter timestamps (UTC). Add 1 day's seconds to end_date
-            # to make it inclusive of the end date itself up to midnight UTC.
+            # Prepare date filter timestamps (UTC).
             start_ts = args.start_date.timestamp() if args.start_date else 0
             end_ts = (args.end_date.timestamp() + 86400) if args.end_date else float('inf')
             date_filter = (start_ts, end_ts)
@@ -753,15 +765,16 @@ def main():
             # --- Data Preparation Phase (Scrape and Convert to CSV) ---
             logging.info(f"--- {BOLD}Starting Data Preparation Phase{RESET} ---")
 
-            # Update config with command-line user-agent if provided.
-            if args.user_agent:
-                 current_config['user_agent'] = args.user_agent
-
             logging.info(f"⚙️ Running data fetch/update for /u/{BOLD}{username_target}{RESET}...")
             # Call save_reddit_data to scrape/update the JSON file.
+            # Pass praw_instance
             json_path_actual = save_reddit_data(
-                user_data_dir, username_target, current_config,
-                sort_descending, args.scrape_comments_only, args.force_scrape
+                user_data_dir=user_data_dir,
+                username=username_target,
+                praw_instance=reddit_instance, # Pass PRAW instance
+                sort_descending=sort_descending,
+                scrape_comments_only=args.scrape_comments_only,
+                force_scrape=args.force_scrape
             )
 
             # Verify the JSON file exists after the scrape attempt. If save failed, check for existing file.
@@ -771,15 +784,13 @@ def main():
                      json_path_actual = json_path_expected
                      logging.warning(f"   ⚠️ Scrape failed, using existing JSON: {CYAN}{json_path_actual}{RESET}")
                  else:
-                     logging.error(f"❌ Scraping failed and no JSON file found at {CYAN}{json_path_expected}{RESET}. Cannot proceed with CSV conversion.");
-                     return # Exit if no JSON data is available
+                     logging.error(f"❌ Scraping failed and no JSON file found at {CYAN}{json_path_expected}{RESET}. Cannot proceed with CSV conversion."); return
             else:
                 logging.info(f"   ✅ Scrape/Update successful: {CYAN}{json_path_actual}{RESET}")
 
 
             logging.info(f"⚙️ Converting JSON data to CSV (applying filters if specified)...")
             # Call extract_csvs_from_json to convert the JSON to CSV, applying date and subreddit filters.
-            # --- MODIFIED: Pass focus_subreddits and ignore_subreddits lists to the function ---
             posts_csv, comments_csv = extract_csvs_from_json(
                 json_path_actual, # Input JSON path
                 os.path.join(user_data_dir, username_target), # Output CSV prefix (includes username)
@@ -791,8 +802,6 @@ def main():
             # Determine the actual paths to the created CSV files (or None if not created).
             posts_csv_path = posts_csv # extract_csvs_from_json returns the path or None
             comments_csv_path = comments_csv # extract_csvs_from_json returns the path or None
-
-            # Check if at least one CSV file was created after filtering.
             posts_csv_exists = os.path.exists(posts_csv_path) if posts_csv_path else False
             comments_csv_exists = os.path.exists(comments_csv_path) if comments_csv_path else False
 
@@ -800,11 +809,8 @@ def main():
             if not posts_csv_exists and not comments_csv_exists:
                 logging.error("❌ CSV conversion produced no files after applying filters. Check filter criteria or input data. Cannot proceed with stats or analysis.")
                 return # Exit if no data remains after filtering
-
-            elif not posts_csv_exists:
-                logging.info(f"   📄 Comments CSV: {CYAN}{comments_csv_path}{RESET} (Posts filtered out or not available)")
-            elif not comments_csv_exists:
-                logging.info(f"   📄 Posts CSV: {CYAN}{posts_csv_path}{RESET} (Comments filtered out or not available)")
+            elif not posts_csv_exists: logging.info(f"   📄 Comments CSV: {CYAN}{comments_csv_path}{RESET} (Posts filtered out or not available)")
+            elif not comments_csv_exists: logging.info(f"   📄 Posts CSV: {CYAN}{posts_csv_path}{RESET} (Comments filtered out or not available)")
             else:
                 logging.info(f"   📄 Posts CSV: {CYAN}{posts_csv_path}{RESET}")
                 logging.info(f"   📄 Comments CSV: {CYAN}{comments_csv_path}{RESET}")
@@ -817,11 +823,10 @@ def main():
             # Fetch 'about' data only if statistics generation is requested.
             if args.generate_stats:
                  logging.info(f"--- {BOLD}Fetching User About Data{RESET} ---")
-                 user_about_data = _fetch_user_about_data(username_target, current_config)
-                 if user_about_data is None:
-                     logging.warning("   ⚠️ Failed to fetch user 'about' data. Some statistics might be incomplete.")
-                 else:
-                     logging.info("   ✅ User 'about' data fetched successfully.")
+                 # Pass praw_instance
+                 user_about_data = _fetch_user_about_data(username_target, reddit_instance)
+                 if user_about_data is None: logging.warning("   ⚠️ Failed to fetch user 'about' data. Some statistics might be incomplete.")
+                 else: logging.info("   ✅ User 'about' data fetched successfully.")
                  logging.info("-" * 70) # Separator line
 
 
@@ -831,69 +836,50 @@ def main():
             # Run statistics generation if requested.
             if args.generate_stats:
                  logging.info(f"--- 📊 {BOLD}Starting Statistics Generation Phase{RESET} ---")
-                 # Ensure stats functionality is available.
-                 if not stats_available:
-                     logging.critical("❌ Statistics generation requested but not available. Check installation.")
-                     # Do not return here, allow analysis to run if requested and possible.
+                 if not stats_available: logging.critical("❌ Statistics generation requested but not available. Check installation.")
                  else:
-                     # Generate a timestamp for stats output files.
                      stats_timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                     # Construct the output path for the Markdown stats report.
                      stats_output_filename = f"{username_target}_stats_{stats_timestamp_str}.md"
                      stats_output_path = os.path.join(user_data_dir, stats_output_filename)
-
-                     # Determine the output path for the JSON stats file if requested.
-                     stats_json_output_path = args.stats_output_json # This is the user-provided path or None
+                     stats_json_output_path = args.stats_output_json
 
                      logging.info(f"   ⚙️ Calculating statistics (applying filters)...")
                      # Call generate_stats_report function. Pass filter arguments.
-                     # --- MODIFIED: Pass focus_subreddits and ignore_subreddits lists ---
                      stats_success, stats_results_data = generate_stats_report(
-                         json_path=json_path_actual, # Pass the path to the main JSON file (used for counts, not filtering)
-                         about_data=user_about_data, # Pass fetched about data
-                         posts_csv_path=posts_csv_path if posts_csv_exists else None, # Pass filtered CSV paths
+                         json_path=json_path_actual,
+                         about_data=user_about_data,
+                         posts_csv_path=posts_csv_path if posts_csv_exists else None,
                          comments_csv_path=comments_csv_path if comments_csv_exists else None,
-                         username=username_target, # Username
-                         output_path=stats_output_path, # MD report output path
-                         stats_json_path=stats_json_output_path, # JSON report output path (or None)
-                         date_filter=date_filter, # Pass the date filter
-                         focus_subreddits=args.focus_subreddit, # Pass focus subreddit list
-                         ignore_subreddits=args.ignore_subreddit, # Pass ignore subreddit list
-                         top_n_words=args.top_words, # Pass top N arguments
+                         username=username_target,
+                         output_path=stats_output_path,
+                         stats_json_path=stats_json_output_path,
+                         date_filter=date_filter,
+                         focus_subreddits=args.focus_subreddit,
+                         ignore_subreddits=args.ignore_subreddit,
+                         top_n_words=args.top_words,
                          top_n_items=args.top_items,
-                         write_md_report=True, # Explicitly request writing the MD report
-                         write_json_report=True # Explicitly request writing the JSON report (if path provided)
+                         write_md_report=True,
+                         write_json_report=bool(stats_json_output_path) # Check if path provided
                      )
 
-                     # Log the outcome of stats generation.
                      if stats_success:
                          logging.info(f"--- ✅ {BOLD}Statistics Generation Complete{RESET} ---")
-                         stats_report_path = stats_output_path # Store the path if successful
+                         stats_report_path = stats_output_path
                      else:
                          logging.error(f"--- ❌ {BOLD}Statistics Generation Failed{RESET}. Check logs.")
-
                  logging.info("-" * 70) # Separator line
 
 
             # --- AI Summary of Stats (if requested and possible) ---
-            # Run AI summary if requested (--summarize-stats) AND stats were generated AND AI model is available.
             if args.summarize_stats:
-                 if not model:
-                     logging.critical("❌ AI Stats Summary requested but AI model failed to initialize.");
-                     # Do not return here, allow other actions if possible.
+                 if not model: logging.critical("❌ AI Stats Summary requested but AI model failed to initialize.");
                  elif not stats_report_path or not os.path.exists(stats_report_path):
-                     # Cannot summarize if the stats report file doesn't exist.
                      logging.error(f"❌ Cannot summarize stats: Statistics report not found ({CYAN}{stats_report_path or 'N/A'}{RESET}). Ensure --generate-stats was successful.")
                  else:
-                     # Proceed with AI summary generation.
                      logging.info(f"--- 🧠 {BOLD}Starting AI Summary of Statistics Report{RESET} ---")
                      logging.info(f"   📄 Reading stats report from: {CYAN}{stats_report_path}{RESET}")
                      try:
-                         # Read the content of the generated stats report.
-                         with open(stats_report_path, "r", encoding="utf-8") as f_stats:
-                             stats_content = f_stats.read()
-
-                         # Construct context about filters applied for the AI prompt.
+                         with open(stats_report_path, "r", encoding="utf-8") as f_stats: stats_content = f_stats.read()
                          filter_context = []
                          if args.focus_subreddit: filter_context.append(f"focused on subreddits: {', '.join(args.focus_subreddit)}")
                          if args.ignore_subreddit: filter_context.append(f"ignoring subreddits: {', '.join(args.ignore_subreddit)}")
@@ -902,148 +888,89 @@ def main():
                              end_str = args.end_date.strftime('%Y-%m-%d') if args.end_date else 'End'
                              filter_context.append(f"date range: {start_str} to {end_str}")
                          filter_str = f" (Note: Data filters applied - {'; '.join(filter_context)})" if filter_context else ""
-
-                         # Create the prompt for the AI summary.
                          summary_prompt = (f"Summarize the key findings (3-5 bullet points) from this Reddit user statistics report for /u/{username_target}{filter_str}:\n\n"
                                            f"--- REPORT START ---\n{stats_content}\n--- REPORT END ---\n\n**Summary:**")
                          logging.info("   🤖 Requesting summary from AI...")
-                         summary_start_time = time.time() # Start timer for AI call
+                         summary_start_time = time.time()
                          try:
-                             # Make the AI call to generate the summary.
-                             # Use a moderate temperature and limit output tokens.
-                             # Apply specific safety settings for this task.
                              response = model.generate_content(summary_prompt,
                                          generation_config=genai.GenerationConfig(temperature=0.5, max_output_tokens=1024),
                                          safety_settings={'HARM_CATEGORY_HARASSMENT': 'BLOCK_LOW_AND_ABOVE', 'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_LOW_AND_ABOVE',
                                                           'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE', 'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_LOW_AND_ABOVE'})
-                             summary_duration = time.time() - summary_start_time # Calculate duration
-
-                             # Process the AI response.
+                             summary_duration = time.time() - summary_start_time
                              if response and hasattr(response, 'text') and response.text and response.text.strip():
                                  summary_text = response.text.strip()
                                  logging.info(f"   ✅ AI summary generated successfully ({summary_duration:.2f}s).")
-                                 # Append the generated summary to the existing stats report Markdown file.
-                                 with open(stats_report_path, "a", encoding="utf-8") as f_append:
-                                     f_append.write(f"\n\n---\n\n## VII. AI-Generated Summary\n\n{summary_text}\n");
-                                     logging.info(f"   💾 Summary appended to: {CYAN}{stats_report_path}{RESET}")
+                                 with open(stats_report_path, "a", encoding="utf-8") as f_append: f_append.write(f"\n\n---\n\n## VII. AI-Generated Summary\n\n{summary_text}\n");
+                                 logging.info(f"   💾 Summary appended to: {CYAN}{stats_report_path}{RESET}")
                              else:
-                                 # Handle cases where summary generation failed or was blocked.
                                  block_reason = response.prompt_feedback.block_reason if response and response.prompt_feedback else 'Unknown'
                                  logging.error(f"   ❌ AI summary generation failed or was blocked ({summary_duration:.2f}s). Reason: {block_reason}")
-                         except Exception as ai_err:
-                             # Catch unexpected exceptions during the AI call.
-                             logging.error(f"   ❌ Exception during AI summary generation: {ai_err}", exc_info=args.log_level == "DEBUG") # Log traceback if debug
-
-                     except IOError as read_err:
-                         # Handle errors reading the stats report file.
-                         logging.error(f"   ❌ Error reading stats report file for summary: {read_err}")
-
+                         except Exception as ai_err: logging.error(f"   ❌ Exception during AI summary generation: {ai_err}", exc_info=args.log_level == "DEBUG")
+                     except IOError as read_err: logging.error(f"   ❌ Error reading stats report file for summary: {read_err}")
                      logging.info(f"--- {BOLD}AI Summary Generation Finished{RESET} ---"); logging.info("-" * 70) # Separator line
 
 
             # --- AI Analysis Phase (if requested and possible) ---
-            # Run AI analysis if requested (--run-analysis) AND AI model is available.
             if args.run_analysis:
-                 if not model:
-                     logging.critical("❌ AI Analysis requested but AI model failed to initialize.");
-                     # Do not return here, allow other actions if possible.
-                     return # Exit if analysis is requested but model is unavailable
+                 if not model: logging.critical("❌ AI Analysis requested but AI model failed to initialize."); return
 
-                 try:
-                     # Import analysis functions here, ensuring they are available.
-                     from analysis import generate_mapped_analysis, generate_raw_analysis
-                 except ImportError as e:
-                     logging.critical(f"❌ Failed to import analysis functions from analysis.py: {e}");
-                     return # Exit if analysis functions cannot be imported
+                 try: from analysis import generate_mapped_analysis, generate_raw_analysis
+                 except ImportError as e: logging.critical(f"❌ Failed to import analysis functions from analysis.py: {e}"); return
 
                  logging.info(f"--- 🤖 {BOLD}Starting AI Analysis Phase{RESET} ({BOLD}{args.analysis_mode}{RESET} mode) ---")
-
                  logging.info(f"   📄 Loading System Prompt...")
                  prompt_file_path = args.prompt_file;
-                 system_prompt = "" # Initialize system prompt
+                 system_prompt = ""
                  try:
-                     # Read the system prompt file.
-                     with open(prompt_file_path, "r", encoding="utf-8") as f:
-                         system_prompt = f.read().strip()
-                     if not system_prompt:
-                         logging.warning(f"   ⚠️ Prompt file {CYAN}{prompt_file_path}{RESET} is empty.")
-                     else:
-                         logging.info(f"   ✅ System prompt loaded ({len(system_prompt)} chars).")
-                 except Exception as e:
-                     # Handle errors reading the prompt file.
-                     logging.critical(f"❌ Failed to load system prompt {CYAN}{prompt_file_path}{RESET}: {e}");
-                     return # Exit if prompt cannot be loaded
+                     with open(prompt_file_path, "r", encoding="utf-8") as f: system_prompt = f.read().strip()
+                     if not system_prompt: logging.warning(f"   ⚠️ Prompt file {CYAN}{prompt_file_path}{RESET} is empty.")
+                     else: logging.info(f"   ✅ System prompt loaded ({len(system_prompt)} chars).")
+                 except Exception as e: logging.critical(f"❌ Failed to load system prompt {CYAN}{prompt_file_path}{RESET}: {e}"); return
 
-                 # Generate a timestamp for the analysis output filename.
                  ai_timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                 # Construct the analysis output filename including mode and timestamp.
                  output_filename = f"{username_target}_charc_{args.analysis_mode}_{ai_timestamp_str}.md"
-                 # Construct the full output path in the user's data directory.
                  output_md_file = os.path.join(user_data_dir, output_filename)
                  logging.info(f"   💾 AI analysis output file: {CYAN}{output_md_file}{RESET}")
-
                  logging.info(f"   ⚙️ Preparing data and initiating AI analysis (applying filters)...")
-                 analysis_success = False # Flag to track if analysis function reports success
+                 analysis_success = False
 
-                 # Prepare arguments dictionary common to both analysis modes.
                  analysis_func_args = {
-                     "output_file": output_md_file, # Output file path
-                     "model": model, # AI model instance
-                     "system_prompt": system_prompt, # Loaded system prompt
-                     "chunk_size": args.chunk_size, # Max tokens per chunk
-                     "date_filter": date_filter, # Date filter tuple
-                     # Pass filter lists to analysis functions. Note: The analysis functions
-                     # themselves are responsible for *using* these filters on the data they process.
-                     "focus_subreddits": args.focus_subreddit,
-                     "ignore_subreddits": args.ignore_subreddit
+                     "output_file": output_md_file, "model": model, "system_prompt": system_prompt,
+                     "chunk_size": args.chunk_size, "date_filter": date_filter,
+                     "focus_subreddits": args.focus_subreddit, "ignore_subreddits": args.ignore_subreddit
                  }
-
-                 # Determine which CSV files exist to pass to the analysis functions.
                  posts_csv_input = posts_csv_path if posts_csv_exists else None
                  comments_csv_input = comments_csv_path if comments_csv_exists else None
 
-                 # If no CSV data is available after filtering, log error and skip analysis.
-                 if not posts_csv_input and not comments_csv_input:
-                     logging.error("❌ Cannot run AI analysis: No valid CSV data found after applying filters. Check filters or input data.");
-                     return # Exit if no data remains
+                 if not posts_csv_input and not comments_csv_input: logging.error("❌ Cannot run AI analysis: No valid CSV data found after applying filters. Check filters or input data."); return
 
-                 # Call the appropriate analysis function based on the selected mode.
-                 from analysis import generate_mapped_analysis, generate_raw_analysis # Re-import within block for clarity
-
+                 # Pass praw_instance to analysis functions if they need it (mapped mode does)
                  if args.analysis_mode == "raw":
-                     # Call generate_raw_analysis with CSV paths and common arguments.
                      analysis_success = generate_raw_analysis(
                          posts_csv=posts_csv_input,
                          comments_csv=comments_csv_input,
                          **analysis_func_args
                      )
                  else: # mapped mode
-                     # Call generate_mapped_analysis with CSV paths and common arguments.
-                     # Mapped mode also requires the config for external context fetching.
                      analysis_success = generate_mapped_analysis(
-                         posts_csv=posts_csv_input,
-                         comments_csv=comments_csv_input,
+                         posts_csv=posts_csv_input, comments_csv=comments_csv_input,
                          config=current_config, # Pass config
-                         no_cache_titles=args.no_cache_titles, # Pass mapped-specific args
+                         praw_instance=reddit_instance, # Pass PRAW instance
+                         no_cache_titles=args.no_cache_titles,
                          fetch_external_context=args.fetch_external_context,
-                         **analysis_func_args # Pass common arguments
+                         **analysis_func_args
                      )
 
-                 # Log the outcome of the AI analysis generation.
-                 if analysis_success:
-                     logging.info(f"--- ✅ {BOLD}AI Analysis Complete{RESET} ---")
-                 else:
-                     logging.error(f"--- ❌ {BOLD}AI Analysis Failed{RESET}. Check logs for details.")
-
+                 if analysis_success: logging.info(f"--- ✅ {BOLD}AI Analysis Complete{RESET} ---")
+                 else: logging.error(f"--- ❌ {BOLD}AI Analysis Failed{RESET}. Check logs for details.")
                  logging.info("-" * 70) # Separator line
 
         else:
-             # Fallback for any action that was determined but not handled explicitly.
              logging.error(f"❌ Unhandled action scenario: {action}. This is an internal error.")
 
 
     except Exception as e:
-         # Catch any unexpected critical errors that occur during the main execution flow.
          logging.critical(f"🔥 An unexpected CRITICAL error occurred in main execution: {e}", exc_info=True) # Log with traceback
          sys.exit(1) # Exit the script with a non-zero status code to indicate an error occurred
 

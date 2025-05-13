@@ -18,6 +18,7 @@ from typing import List, Optional, Tuple # Imports for type hints, improving cod
 # These functions are assumed to be available in the project structure.
 # Using a try-except block to handle potential import errors gracefully.
 try:
+    # These functions are expected to operate on the dictionary structure loaded from JSON
     from reddit_utils import get_modification_date, format_timestamp # Utility functions for date handling
     REDDIT_UTILS_AVAILABLE = True
 except ImportError:
@@ -108,77 +109,81 @@ def extract_csvs_from_json(
         logging.info(f"      Applying Filters: {'; '.join(filter_log_parts)}")
 
     # --- Pre-process filter lists for efficient lookup ---
-    # Convert focus and ignore subreddit lists to lowercase sets. Checking membership
-    # in a set is much faster (O(1) on average) than checking membership in a list (O(n)).
     focus_lower_set = {sub.lower() for sub in focus_subreddits} if focus_subreddits else None
     ignore_lower_set = {sub.lower() for sub in ignore_subreddits} if ignore_subreddits else None
 
     # --- Load Data from JSON ---
     try:
-        # Open and load the data from the specified JSON file.
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
-        # Handle case where the input JSON file doesn't exist.
         logging.error(f"   ❌ JSON file not found: {CYAN}{json_path}{RESET}");
-        return None, None # Return None for both paths to indicate failure
+        return None, None
     except json.JSONDecodeError:
-        # Handle case where the file is not valid JSON.
         logging.error(f"   ❌ Error decoding JSON: {CYAN}{json_path}{RESET}");
-        return None, None # Return None for both paths
+        return None, None
     except Exception as e:
-        # Handle any other exceptions during file reading.
-        logging.error(f"   ❌ Error reading JSON {CYAN}{json_path}{RESET}: {e}", exc_info=True); # Log traceback
-        return None, None # Return None for both paths
+        logging.error(f"   ❌ Error reading JSON {CYAN}{json_path}{RESET}: {e}", exc_info=True);
+        return None, None
 
-    # Validate that the loaded JSON data is in the expected dictionary format.
     if not isinstance(data, dict):
         logging.error(f"   ❌ JSON file {CYAN}{json_path}{RESET} is not a dict (expected structure: {{'t3': {{...}}, 't1': {{...}}}}).");
-        return None, None # Return None if the structure is unexpected
+        return None, None
 
     # --- Define CSV Fieldnames ---
-    # Added 'is_self' to posts; Added 'id' and 'parent_id' to comments.
     post_fieldnames = ['title', 'selftext', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'num_comments', 'link_flair_text', 'is_self']
-    comment_fieldnames = ['id', 'parent_id', 'body', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'author_flair_text'] # <-- Added id, parent_id
+    comment_fieldnames = ['id', 'parent_id', 'body', 'permalink', 'created_utc_iso', 'modified_utc_iso', 'subreddit', 'score', 'author_flair_text']
+
+    # --- Define CSV Quoting Behavior (Optional Change) ---
+    # QUOTE_MINIMAL: Only quotes fields containing delimiter, quotechar, or line breaks (default)
+    # QUOTE_NONNUMERIC: Quotes all fields that are not integers or floats.
+    # QUOTE_ALL: Quotes all fields.
+    csv_quoting_style = csv.QUOTE_NONNUMERIC # <-- Set desired quoting style here
 
     # --- Write Posts CSV ---
     if "t3" in data and isinstance(data.get("t3"), dict) and data["t3"]:
         logging.debug(f"      Processing {len(data['t3'])} posts (t3) for CSV...")
         try:
             with open(posts_csv_path, 'w', newline='', encoding='utf-8') as pfile:
-                post_writer = csv.writer(pfile, quoting=csv.QUOTE_MINIMAL)
-                post_writer.writerow(post_fieldnames)
+                # Apply the chosen quoting style
+                post_writer = csv.writer(pfile, quoting=csv_quoting_style)
+                post_writer.writerow(post_fieldnames) # Write header
 
                 for i, (entry_id, entry_data) in enumerate(data["t3"].items()):
+                    # Basic validation of the structure loaded from JSON
                     if not isinstance(entry_data, dict) or 'data' not in entry_data or not isinstance(entry_data['data'], dict):
                         posts_skipped_invalid += 1; continue
 
-                    # Check if reddit_utils is available for date functions
+                    # Get timestamps using helpers (which expect the dict structure)
                     if not REDDIT_UTILS_AVAILABLE:
                          logging.warning("Skipping date filtering/formatting due to missing reddit_utils.");
-                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0) # Fallback to created_utc
+                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0)
                          created_utc = modified_utc_ts
                     else:
                          modified_utc_ts = get_modification_date(entry_data)
                          created_utc = entry_data.get('data',{}).get('created_utc', 0)
 
+                    # Skip if modification date is invalid (e.g., 0)
                     if modified_utc_ts == 0:
                         posts_skipped_invalid += 1; continue
 
+                    # Apply date filter
                     if not (start_ts <= modified_utc_ts < end_ts):
                          posts_filtered_date += 1; continue
 
+                    # Extract the core 'data' dictionary
                     edata = entry_data['data']
                     item_subreddit_lower = edata.get('subreddit', '').lower()
 
+                    # Apply subreddit filters
                     focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
                     ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
-
                     if not (focus_match and ignore_match):
-                        posts_filtered_sub += 1
-                        continue
+                        posts_filtered_sub += 1; continue
 
+                    # Extract data fields from the dictionary - uses .get for safety
                     title = edata.get('title', '')
+                    # Note: Selftext can be legitimately empty for link posts or empty body self-posts
                     selftext = edata.get('selftext', '').replace('\n', ' <br> ').replace('\r', '').replace('\t', ' ')
                     permalink = edata.get('permalink', '')
                     created_iso = format_timestamp(created_utc) # Format timestamps
@@ -187,11 +192,13 @@ def extract_csvs_from_json(
                     score = edata.get('score', 0)
                     num_comments = edata.get('num_comments', 0)
                     link_flair = edata.get('link_flair_text', '')
-                    is_self = edata.get('is_self', False) # Extract is_self boolean
+                    is_self = edata.get('is_self', False)
 
+                    # Write the row to the CSV
                     post_writer.writerow([title, selftext, permalink, created_iso, modified_iso, subreddit, score, num_comments, link_flair, is_self])
                     posts_written += 1
 
+            # Logging and cleanup after processing posts
             if posts_written > 0:
                 logging.info(f"      📄 Created posts CSV: {CYAN}{posts_csv_path}{RESET} ({posts_written} posts written)")
                 posts_csv_created = True
@@ -210,6 +217,7 @@ def extract_csvs_from_json(
             logging.error(f"      ❌ Unexpected error writing posts CSV {CYAN}{posts_csv_path}{RESET}: {e}", exc_info=True);
             posts_csv_created = False
 
+        # Ensure temp file cleanup if error occurred
         if not posts_csv_created and os.path.exists(posts_csv_path):
             try: os.remove(posts_csv_path)
             except OSError: pass
@@ -222,46 +230,51 @@ def extract_csvs_from_json(
         logging.debug(f"      Processing {len(data['t1'])} comments (t1) for CSV...")
         try:
             with open(comments_csv_path, 'w', newline='', encoding='utf-8') as cfile:
-                comment_writer = csv.writer(cfile, quoting=csv.QUOTE_MINIMAL)
-                comment_writer.writerow(comment_fieldnames) # Write the header row with new fields
+                # Apply the chosen quoting style
+                comment_writer = csv.writer(cfile, quoting=csv_quoting_style)
+                comment_writer.writerow(comment_fieldnames) # Write header
 
                 for i, (entry_id, entry_data) in enumerate(data["t1"].items()):
+                     # Basic validation of the structure loaded from JSON
                      if not isinstance(entry_data, dict) or 'data' not in entry_data or not isinstance(entry_data['data'], dict):
                          comments_skipped_invalid += 1; continue
 
-                     # Check if reddit_utils is available for date functions
+                     # Get timestamps using helpers
                      if not REDDIT_UTILS_AVAILABLE:
                          logging.warning("Skipping date filtering/formatting due to missing reddit_utils.");
-                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0) # Fallback to created_utc
+                         modified_utc_ts = entry_data.get('data',{}).get('created_utc', 0)
                          created_utc = modified_utc_ts
                      else:
                          modified_utc_ts = get_modification_date(entry_data)
                          created_utc = entry_data.get('data',{}).get('created_utc', 0)
 
+                     # Skip if modification date is invalid
                      if modified_utc_ts == 0:
                          comments_skipped_invalid += 1; continue
 
+                     # Apply date filter
                      if not (start_ts <= modified_utc_ts < end_ts):
                           comments_filtered_date += 1; continue
 
+                     # Extract the core 'data' dictionary
                      edata = entry_data['data']
                      item_subreddit_lower = edata.get('subreddit', '').lower()
 
+                     # Apply subreddit filters
                      focus_match = (focus_lower_set is None) or (item_subreddit_lower in focus_lower_set)
                      ignore_match = (ignore_lower_set is None) or (item_subreddit_lower not in ignore_lower_set)
-
                      if not (focus_match and ignore_match):
-                         comments_filtered_sub += 1
-                         continue
+                         comments_filtered_sub += 1; continue
 
                      # --- Extract fields for comment CSV ---
-                     # *** NEW: Extract id and parent_id ***
-                     comment_id = edata.get('id', '')  # Get the comment's own ID
-                     # Note: Reddit API uses 'name' field for the full ID (e.g., t1_...)
-                     # Using edata.get('name') might be more robust if 'id' only contains the base36 part.
-                     # Let's assume 'name' is the full ID for consistency.
-                     full_comment_id = edata.get('name', f't1_{comment_id}') # Prefer 'name', fallback using 'id'
-                     parent_id = edata.get('parent_id', '') # Get the ID of the parent item (e.g., t3_..., t1_...)
+                     # Uses .get for safety - relies on keys existing in the input JSON dict (edata)
+                     full_comment_id = edata.get('name', f't1_{edata.get("id", "")}') # Prefer 'name', fallback using 'id'
+
+                     # IMPORTANT: This relies on 'parent_id' being present in the 'edata' dictionary
+                     # loaded from the JSON file. If it's missing in the JSON, this will be an empty string.
+                     # The fix for missing 'parent_id' must happen in the script that *creates* the JSON file
+                     # (likely reddit_utils.py's _praw_object_to_dict function).
+                     parent_id = edata.get('parent_id', '')
 
                      body = edata.get('body', '').replace('\n', ' <br> ').replace('\r', '').replace('\t', ' ')
                      permalink = edata.get('permalink', '')
@@ -271,10 +284,11 @@ def extract_csvs_from_json(
                      score = edata.get('score', 0)
                      author_flair = edata.get('author_flair_text', '')
 
-                     # *** Write row with new fields in the correct order ***
+                     # Write the row to the CSV
                      comment_writer.writerow([full_comment_id, parent_id, body, permalink, created_iso, modified_iso, subreddit, score, author_flair])
                      comments_written += 1
 
+            # Logging and cleanup after processing comments
             if comments_written > 0:
                 logging.info(f"      📄 Created comments CSV: {CYAN}{comments_csv_path}{RESET} ({comments_written} comments written)")
                 comments_csv_created = True
@@ -293,6 +307,7 @@ def extract_csvs_from_json(
             logging.error(f"      ❌ Unexpected error writing comments CSV {CYAN}{comments_csv_path}{RESET}: {e}", exc_info=True);
             comments_csv_created = False
 
+        # Ensure temp file cleanup if error occurred
         if not comments_csv_created and os.path.exists(comments_csv_path):
             try: os.remove(comments_csv_path)
             except OSError: pass
@@ -300,6 +315,7 @@ def extract_csvs_from_json(
     else:
         logging.info("      ℹ️ No 't1' (comments) data found in JSON.")
 
+    # Return the paths to the created files (or None if not created)
     final_posts_path = posts_csv_path if posts_csv_created else None
     final_comments_path = comments_csv_path if comments_csv_created else None
     logging.info(f"   ✅ CSV Extraction complete.")
