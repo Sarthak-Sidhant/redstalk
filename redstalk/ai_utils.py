@@ -14,7 +14,7 @@ import re
 import concurrent.futures
 from tqdm import tqdm
 try:
-    from llm_wrapper import GeminiProvider
+    from .llm_wrapper import GeminiProvider
 except ImportError:
     GeminiProvider = type(None) # Fallback for isinstance check if import fails
 

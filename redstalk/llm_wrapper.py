@@ -18,6 +18,14 @@ try:
 except ImportError:
     HAS_OPENAI = False
 
+# Try importing langchain_nvidia_ai_endpoints for NVIDIA support
+try:
+    from langchain_nvidia_ai_endpoints import ChatNVIDIA
+    from dotenv import load_dotenv
+    HAS_NVIDIA = True
+except ImportError:
+    HAS_NVIDIA = False
+
 class LLMProvider(ABC):
     @abstractmethod
     def configure(self, api_key):
@@ -123,10 +131,6 @@ class OpenRouterProvider(LLMProvider):
             raise ValueError("Client not configured")
 
         messages = []
-        # If system prompt is passed separately (which we might need to handle), add it.
-        # However, looking at ai_utils.py, it embeds system prompt in the text.
-        # We might need to adjust ai_utils.py or handle it here.
-        # For now, we treat 'text' as the full user message. 
         messages.append({"role": "user", "content": text})
 
         try:
@@ -138,17 +142,75 @@ class OpenRouterProvider(LLMProvider):
                 model=self.model_name,
                 messages=messages,
                 temperature=0.7,
-                # max_tokens=32768 # Some models might not support this high, let defaults handle or be conservative
             )
             return completion.choices[0].message.content
         except Exception as e:
             logging.error(f"OpenRouter generation error: {e}")
             raise e
 
+class NvidiaProvider(LLMProvider):
+    def __init__(self, model_name):
+        self.model_name = model_name
+        self.llm = None
+
+    def configure(self, api_key):
+        if not HAS_NVIDIA:
+            raise ImportError("langchain-nvidia-ai-endpoints package is not installed. Please pip install langchain-nvidia-ai-endpoints python-dotenv")
+        
+        # Load dotenv as requested, although we manually set env var largely.
+        load_dotenv()
+        
+        # Set the API Key in the environment variable so ChatNVIDIA can find it
+        os.environ["NVIDIA_API_KEY"] = api_key
+        
+        try:
+            # Initialize the model with the correct naming convention (org/model)
+            self.llm = ChatNVIDIA(model=self.model_name)
+        except Exception as e:
+            logging.warning(f"Error initializing specific NVIDIA model '{self.model_name}': {e}. Falling back to default 'meta/llama3-8b-instruct' check.")
+            try:
+                self.llm = ChatNVIDIA(model="meta/llama3-8b-instruct") # Fallback as per user request example logic (modified slightly for class struct)
+            except Exception as e2:
+                logging.error(f"Failed to initialize NVIDIA fallback model: {e2}")
+                raise e2
+
+    @property
+    def name(self):
+        return f"nvidia/{self.model_name}"
+
+    def count_tokens(self, text):
+        # ChatNVIDIA via langchain might not expose direct token counting easily without a tokenizer.
+        # Fallback to character estimation.
+        return len(text) // 4
+
+    def generate_content(self, text, system_prompt=None):
+        if not self.llm:
+            raise ValueError("Model not configured")
+
+        # You can pass the string prompt directly
+        try:
+            # Note: system_prompt support depends on how we structure the call.
+            # Redstalk passes full prompt in 'text' currently for other providers,
+            # but if system_prompt is separate, we effectively append/prepend content.
+            # Here we assume 'text' contains everything needed.
+            result = self.llm.invoke(text)
+            return result.content
+        except Exception as e:
+            logging.error(f"An error occurred during NVIDIA generation: {e}")
+            # Try listing models for debugging help
+            try:
+                logging.info(f"Available NVIDIA models: {[m.id for m in ChatNVIDIA.get_available_models()]}")
+            except:
+                pass
+            raise e
+
+
 def get_llm_provider(provider_name, model_name, **kwargs):
     if provider_name.lower() == "gemini":
         return GeminiProvider(model_name)
     elif provider_name.lower() == "openrouter":
         return OpenRouterProvider(model_name, **kwargs)
+    elif provider_name.lower() == "nvidia":
+        return NvidiaProvider(model_name)
     else:
         raise ValueError(f"Unknown provider: {provider_name}")

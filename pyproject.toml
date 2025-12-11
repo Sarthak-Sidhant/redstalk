@@ -32,8 +32,8 @@ dependencies = [
 "Bug Tracker" = "https://github.com/sarthak-sidhant/redstalk/issues"
 
 [project.scripts]
-redstalk = "redstalk:main"
+redstalk = "redstalk.main:main"
 
 [tool.setuptools]
-py-modules = ["redstalk", "ai_utils", "analysis", "config_utils", "data_utils", "monitoring", "reddit_utils"]
-packages = ["stats"]
+packages = ["redstalk"]
+

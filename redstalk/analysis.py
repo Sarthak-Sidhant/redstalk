@@ -17,8 +17,8 @@ from datetime import datetime, timezone # For handling date and time conversions
 import time # To measure the duration of data preparation steps
 
 # Import necessary utility functions from other modules
-from reddit_utils import get_post_title_from_permalink # Used in 'mapped' mode to get context for comments on external posts
-from ai_utils import perform_ai_analysis # The core function to send data to the AI model
+from .reddit_utils import get_post_title_from_permalink # Used in 'mapped' mode to get context for comments on external posts
+from .ai_utils import perform_ai_analysis # The core function to send data to the AI model
 
 # --- ANSI Codes (for logging ONLY) ---
 # Define ANSI escape codes specifically for use within logging messages

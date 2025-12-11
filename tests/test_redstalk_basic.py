@@ -7,9 +7,9 @@ from unittest.mock import patch, MagicMock
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from redstalk import valid_date
-from config_utils import load_config
-from llm_wrapper import get_llm_provider
+from redstalk.main import valid_date
+from redstalk.config_utils import load_config
+from redstalk.llm_wrapper import get_llm_provider
 
 class TestRedstalk(unittest.TestCase):
     

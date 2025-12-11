@@ -11,3 +11,6 @@ pandas>=1.2.0               # Helps with data handling in some calculations
 # Optional, but good for seeing progress during AI analysis
 tqdm>=4.60.0 # Might get installed automatically by google-generativeai anyway, but listing it clearly
 openai>=1.0.0
+langchain-nvidia-ai-endpoints
+python-dotenv
+langchain-core

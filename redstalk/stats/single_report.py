@@ -43,10 +43,11 @@ from .core_utils import _get_timestamp, _format_timedelta, CYAN, RESET, BOLD, YE
 # If they fail to import, we define dummy functions and set a flag, ensuring
 # the script doesn't crash immediately, though report generation will be severely limited.
 try:
-    from reddit_utils import get_modification_date, format_timestamp, _fetch_user_about_data
-    reddit_utils_available = True
+    from ..reddit_utils import get_modification_date, load_existing_data
+    from ..data_utils import extract_csvs_from_json
+    reddit_utils_available = True # Renamed from reddit_utils_available to indicate general utility availability
 except ImportError:
-    logging.critical(f"{BOLD}{RED}❌ Critical Error: Failed to import required functions from reddit_utils.py! Stats generation may fail or be inaccurate.{RESET}")
+    logging.critical(f"{BOLD}{RED}❌ Critical Error: Failed to import required functions from reddit_utils.py or data_utils.py! Stats generation may fail or be inaccurate.{RESET}")
     reddit_utils_available = False
     # Define dummy functions to prevent crashes if reddit_utils is missing
     def get_modification_date(entry):

@@ -19,26 +19,26 @@ from datetime import datetime, timezone # For handling dates, times, and timezon
 import re # For using regular expressions (used here for date parsing in argparse)
 import time # For time-related functions (used for timing AI summary)
 import json # For saving statistics data in JSON format
-from llm_wrapper import get_llm_provider # Import the generic LLM provider factory
+from .llm_wrapper import get_llm_provider # Import the generic LLM provider factory
 
 
 # --- Import Utilities ---
 # Configuration loading and saving utilities
-from config_utils import load_config, save_config, DEFAULT_CONFIG
-# Reddit data scraping and handling utilities
-from reddit_utils import save_reddit_data, _fetch_user_about_data
-# Data extraction and preparation utilities (JSON to CSV)
-from data_utils import extract_csvs_from_json # Note: The import signature might look different from its definition, but the usage later reflects the actual signature.
-# User monitoring functionality
-from monitoring import monitor_user
+from .config_utils import load_config, save_config, DEFAULT_CONFIG # Configuration tools
+from .ai_utils import count_tokens # AI token counting utility
+from .reddit_utils import save_reddit_data, _fetch_user_about_data
+from .stats import generate_stats_report # Statistics report generator
+from .data_utils import extract_csvs_from_json # Note: The import signature might look different from its definition, but the usage later reflects the actual signature.
+from .stats.comparison import compare_users # User comparison tool
+from .monitoring import monitor_user
 
 # Import statistics generation functions. Wrapped in a try/except
 # because these might depend on external libraries (like pandas, vaderSentiment)
 # that might not be installed if the user only wants scraping/AI features.
 try:
     # Import functions for single user stats report and user comparison report.
-    from stats.single_report import generate_stats_report # Usage later reflects its signature
-    from stats.comparison import generate_comparison_report
+    from .stats.single_report import generate_stats_report # Usage later reflects its signature
+    from .stats.comparison import generate_comparison_report
     stats_available = True # Flag to indicate if stats module was imported successfully
 except ImportError as e:
     # If importing stats fails, log an error and disable stats features.
@@ -357,7 +357,7 @@ def main():
     # --analysis-mode: Chooses between 'mapped' and 'raw' analysis output formats.
     analysis_group.add_argument("--analysis-mode", default="mapped", choices=["mapped", "raw", "subreddit_persona"], help="Analysis format: 'mapped', 'raw', or 'subreddit_persona'.")
     # --provider: Selects the AI provider.
-    analysis_group.add_argument("--provider", default="gemini", choices=["gemini", "openrouter"], help="AI Provider: 'gemini' (default) or 'openrouter'.")
+    analysis_group.add_argument("--provider", default="gemini", choices=["gemini", "openrouter", "nvidia"], help="AI Provider: 'gemini' (default), 'openrouter', or 'nvidia'.")
     # --no-cache-titles: Debug option to disable post title caching in mapped mode.
     analysis_group.add_argument("--no-cache-titles", action="store_true", help="Disable caching fetched post titles (mapped analysis debug).")
     # --fetch-external-context: Enables fetching titles for comments on external posts in mapped mode.
@@ -512,13 +512,13 @@ def main():
             # Attempt to import AI-related modules.
             # These imports are placed here to avoid errors if the required packages are not installed,
             # unless an AI action is actually requested.
-            from ai_utils import generate_prompt_interactive, perform_ai_analysis # Import functions from ai_utils
-            from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Import analysis functions
+            from .ai_utils import generate_prompt_interactive, perform_ai_analysis # Import functions from ai_utils
+            from .analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Import analysis functions
             logging.debug("AI modules imported successfully.")
         except ImportError as e:
             # If import fails, log a critical error, inform the user to install packages, and disable AI features.
             logging.critical(f"❌ Required Python packages for AI functionality not found: {e}")
-            logging.critical("   Please install them: pip install google-generativeai openai")
+            logging.critical("   Please install them: pip install google-generativeai openai langchain-nvidia-ai-endpoints python-dotenv")
             # If the requested action *strictly* requires AI (prompt generation, analysis, summary), exit.
             if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main if AI essential for action
             logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue without AI
@@ -542,6 +542,9 @@ def main():
         elif provider_name == "openrouter":
              api_key_to_use = os.environ.get("OPENROUTER_API_KEY") or current_config.get("openrouter_api_key") or args.api_key
              source_indicator = "ENV (OPENROUTER_API_KEY)" if os.environ.get("OPENROUTER_API_KEY") else ("config" if current_config.get("openrouter_api_key") else ("flag" if args.api_key else "None"))
+        elif provider_name == "nvidia":
+             api_key_to_use = os.environ.get("NVIDIA_API_KEY") or current_config.get("nvidia_api_key") or args.api_key
+             source_indicator = "ENV (NVIDIA_API_KEY)" if os.environ.get("NVIDIA_API_KEY") else ("config" if current_config.get("nvidia_api_key") else ("flag" if args.api_key else "None"))
 
         # Check if a valid API key was found.
         if not api_key_to_use or "use_ur" in str(api_key_to_use):
@@ -962,7 +965,7 @@ def main():
 
                  try:
                      # Import analysis functions here, ensuring they are available.
-                     from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis
+                     from .analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis
                  except ImportError as e:
                      logging.critical(f"❌ Failed to import analysis functions from analysis.py: {e}");
                      return # Exit if analysis functions cannot be imported
@@ -1019,7 +1022,7 @@ def main():
                      return # Exit if no data remains
 
                  # Call the appropriate analysis function based on the selected mode.
-                 from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Re-import within block for clarity
+                 from .analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Re-import within block for clarity
 
                  if args.analysis_mode == "raw":
                      # Call generate_raw_analysis with CSV paths and common arguments.

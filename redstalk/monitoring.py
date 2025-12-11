@@ -14,8 +14,8 @@ from datetime import datetime # For getting the current time for logging iterati
 
 # Import necessary utility functions from other modules
 # These functions are assumed to be available in the project structure.
-from reddit_utils import get_reddit_data, save_reddit_data, get_modification_date, load_existing_data, format_timestamp
-from data_utils import extract_csvs_from_json
+from .reddit_utils import get_reddit_data, save_reddit_data, get_modification_date, load_existing_data, format_timestamp
+from .data_utils import extract_csvs_from_json
 # Analysis functions are imported conditionally *inside* monitor_user
 # only when an analysis is triggered, to avoid circular dependencies if not needed.
 # from analysis import generate_raw_analysis, generate_mapped_analysis # Not imported globally

@@ -38,7 +38,7 @@ from .core_utils import clean_text, _get_timestamp, _format_timedelta, _generate
 # or the main project structure might change. If it fails, define a placeholder
 # function to avoid errors later, though it will indicate the failure.
 try:
-    from reddit_utils import format_timestamp
+    from ..reddit_utils import format_timestamp
 except ImportError:
     logging.critical(f"{BOLD}{RED}❌ Critical Error: Failed to import 'format_timestamp' from reddit_utils.py needed by calculations.{RESET}")
     # Define a fallback function to prevent NameError if import fails
