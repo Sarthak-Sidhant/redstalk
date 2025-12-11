@@ -3,3 +3,4 @@ config.json
 /stats/__pycache__
 /priv
 /data
+*.pyc
