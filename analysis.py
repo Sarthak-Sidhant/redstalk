@@ -535,3 +535,143 @@ def generate_raw_analysis(posts_csv, comments_csv, output_file, model, system_pr
     # Call the core analysis function from ai_utils with the prepared data.
     # In raw mode, `final_entries` is just a flat list of post and comment strings.
     return perform_ai_analysis(model, system_prompt, final_entries, output_file, chunk_size)
+# --- Subreddit Persona Analysis ---
+def generate_subreddit_persona_analysis(posts_csv, comments_csv, output_file, model, system_prompt, chunk_size,
+                                      date_filter=(0, float('inf')),
+                                      focus_subreddits=None,
+                                      ignore_subreddits=None):
+    """
+    Generates analysis in 'subreddit_persona' mode. 
+    Aggregates user activity by subreddit to facilitate personality analysis 
+    based on community interactions.
+
+    Args:
+        posts_csv: Path to the CSV file containing scraped post data.
+        comments_csv: Path to the CSV file containing scraped comment data.
+        output_file: Path where the final AI analysis result should be saved.
+        model: The AI model instance to use for analysis.
+        system_prompt: The system prompt string for the AI analysis.
+        chunk_size: The maximum token size for data chunks sent to the AI.
+        date_filter: A tuple (start_timestamp, end_timestamp) for date filtering.
+        focus_subreddits: A list of subreddit names to *include*.
+        ignore_subreddits: A list of subreddit names to *exclude*.
+
+    Returns:
+        True if analysis completed, False otherwise.
+    """
+    logging.info(f"   Analysis Prep ({BOLD}Subreddit Persona Mode{RESET}): Aggregating data by subreddit...")
+    start_time = time.time()
+
+    # --- Prepare Filters ---
+    focus_subs_set = {sub.lower() for sub in focus_subreddits} if focus_subreddits else None
+    ignore_subs_set = {sub.lower() for sub in ignore_subreddits} if ignore_subreddits else None
+
+    # Data structure: {subreddit_name: {'posts': [], 'comments': []}}
+    subreddit_data = {}
+
+    total_items_read = 0
+    items_kept = 0
+
+    # Helper to process a row
+    def process_row(row, is_post):
+        current_sub = row.get('subreddit', '').lower()
+        original_sub_name = row.get('subreddit', 'Unknown')
+        
+        # Filters
+        if focus_subs_set and current_sub not in focus_subs_set: return
+        if ignore_subs_set and current_sub in ignore_subs_set: return
+
+        # Date Filter
+        timestamp_str = row.get('modified_utc_iso') or row.get('created_utc_iso', '')
+        try:
+             # Simple timestamp check similar to other modes
+             if timestamp_str:
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                ts = dt.timestamp()
+                if not (date_filter[0] <= ts < date_filter[1]):
+                    return
+        except ValueError:
+            pass # Keep if date parse fails
+
+        if current_sub not in subreddit_data:
+            subreddit_data[current_sub] = {'name': original_sub_name, 'posts': [], 'comments': []}
+        
+        if is_post:
+            subreddit_data[current_sub]['posts'].append(row)
+        else:
+            subreddit_data[current_sub]['comments'].append(row)
+        
+        nonlocal items_kept
+        items_kept += 1
+
+    # Load Posts
+    if posts_csv and os.path.exists(posts_csv):
+        try:
+            with open(posts_csv, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    total_items_read += 1
+                    process_row(row, is_post=True)
+        except Exception as e:
+            logging.error(f"      ❌ Error reading posts CSV: {e}")
+            return False
+
+    # Load Comments
+    if comments_csv and os.path.exists(comments_csv):
+        try:
+            with open(comments_csv, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    total_items_read += 1
+                    process_row(row, is_post=False)
+        except Exception as e:
+            logging.error(f"      ❌ Error reading comments CSV: {e}")
+            return False
+
+    if not subreddit_data:
+         logging.error(f"   ❌ No data found after filtering.")
+         return False
+
+    # Format entries
+    # Each entry will be a summary of activity in one subreddit
+    entries = []
+    
+    # Sort subreddits by activity volume
+    sorted_subs = sorted(subreddit_data.values(), 
+                         key=lambda x: len(x['posts']) + len(x['comments']), 
+                         reverse=True)
+
+    for sub_info in sorted_subs:
+        sub_name = sub_info['name']
+        posts = sub_info['posts']
+        comments = sub_info['comments']
+        
+        entry_text = f"=== SUBREDDIT: r/{sub_name} ===\n"
+        entry_text += f"Activity Summary: {len(posts)} Posts, {len(comments)} Comments\n\n"
+        
+        if posts:
+            entry_text += "--- POSTS ---\n"
+            for p in posts:
+                entry_text += f"Title: {p.get('title', 'N/A')}\n"
+                entry_text += f"Date: {p.get('created_utc_iso', 'N/A')}\n"
+                body = p.get('selftext', '').replace('<br>', ' ').strip()
+                if body: entry_text += f"Body: {body[:500]}{'...' if len(body)>500 else ''}\n"
+                entry_text += "\n"
+        
+        if comments:
+            entry_text += "--- COMMENTS ---\n"
+            for c in comments:
+                body = c.get('body', '').replace('<br>', ' ').strip()
+                entry_text += f"Date: {c.get('created_utc_iso', 'N/A')}\n"
+                entry_text += f"Comment: {body}\n\n"
+        
+        entry_text += f"=== END SUBREDDIT r/{sub_name} ===\n"
+        entries.append(entry_text)
+
+    prep_duration = time.time() - start_time
+    logging.info(f"   ✅ Prepared {len(entries)} subreddit blocks in {prep_duration:.2f}s.")
+
+    # In this mode, we might want to augment the system prompt if the user used the default
+    # but that's hard to know. We'll trust the user or the default prompt to be generic enough.
+    
+    return perform_ai_analysis(model, system_prompt, entries, output_file, chunk_size)

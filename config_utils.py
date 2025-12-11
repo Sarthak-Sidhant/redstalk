@@ -32,9 +32,10 @@ DEFAULT_CONFIG = {
     "api_key": None, # Placeholder for the Google Generative AI API key.
                      # It's recommended to use environment variables or other secure methods,
                      # but this provides a file-based option. Set to None initially.
+    "openrouter_api_key": None, # Placeholder for OpenRouter API Key.
     "default_model_name": "gemini-1.5-flash", # Default name of the AI model to use (using a faster, cheaper model)
     "monitor_interval_seconds": 180, # Default interval (in seconds) between checks when monitoring is enabled
-    "user_agent": "Python:RedditProfilerScript:v1.7 (by /u/YourRedditUsername)", # Default User-Agent string for Reddit API requests.
+    "user_agent": "Python:RedditProfilerScript:v1.9 (by /u/YourRedditUsername)", # Default User-Agent string for Reddit API requests.
                                                                                 # It's good practice to identify your script and provide contact info. Version bumped.
 }
 

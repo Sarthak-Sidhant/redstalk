@@ -19,6 +19,8 @@ from datetime import datetime, timezone # For handling dates, times, and timezon
 import re # For using regular expressions (used here for date parsing in argparse)
 import time # For time-related functions (used for timing AI summary)
 import json # For saving statistics data in JSON format
+from llm_wrapper import get_llm_provider # Import the generic LLM provider factory
+
 
 # --- Import Utilities ---
 # Configuration loading and saving utilities
@@ -108,7 +110,8 @@ def setup_logging(log_level_str):
     if log_level > logging.DEBUG:
         logging.getLogger("requests").setLevel(logging.WARNING);
         logging.getLogger("urllib3").setLevel(logging.WARNING);
-        logging.getLogger("google.generativeai").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING) # For OpenAI client
+        # logging.getLogger("google.generativeai").setLevel(logging.WARNING) # Handled largely by wrapper/logging logic now
         logging.getLogger("vaderSentiment").setLevel(logging.WARNING) # Add vaderSentiment if used in stats
 
     logging.debug(f"Logging initialized at level: {log_level_str}")
@@ -352,7 +355,9 @@ def main():
     # --chunk-size: Sets the maximum token size for AI analysis chunks. Defaults from config.
     analysis_group.add_argument("--chunk-size", type=int, default=current_config['default_chunk_size'], help="Target max tokens per chunk for large data.")
     # --analysis-mode: Chooses between 'mapped' and 'raw' analysis output formats.
-    analysis_group.add_argument("--analysis-mode", default="mapped", choices=["mapped", "raw"], help="Analysis format: 'mapped' (grouped) or 'raw' (sequential).")
+    analysis_group.add_argument("--analysis-mode", default="mapped", choices=["mapped", "raw", "subreddit_persona"], help="Analysis format: 'mapped', 'raw', or 'subreddit_persona'.")
+    # --provider: Selects the AI provider.
+    analysis_group.add_argument("--provider", default="gemini", choices=["gemini", "openrouter"], help="AI Provider: 'gemini' (default) or 'openrouter'.")
     # --no-cache-titles: Debug option to disable post title caching in mapped mode.
     analysis_group.add_argument("--no-cache-titles", action="store_true", help="Disable caching fetched post titles (mapped analysis debug).")
     # --fetch-external-context: Enables fetching titles for comments on external posts in mapped mode.
@@ -508,53 +513,59 @@ def main():
             # These imports are placed here to avoid errors if the required packages are not installed,
             # unless an AI action is actually requested.
             from ai_utils import generate_prompt_interactive, perform_ai_analysis # Import functions from ai_utils
-            from analysis import generate_mapped_analysis, generate_raw_analysis # Import analysis functions
-            import google.generativeai as genai_imported # Import the generativeai library itself
-            genai = genai_imported # Assign the imported library to the genai variable
+            from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Import analysis functions
             logging.debug("AI modules imported successfully.")
         except ImportError as e:
             # If import fails, log a critical error, inform the user to install packages, and disable AI features.
             logging.critical(f"❌ Required Python packages for AI functionality not found: {e}")
-            logging.critical("   Please install them: pip install google-generativeai")
+            logging.critical("   Please install them: pip install google-generativeai openai")
             # If the requested action *strictly* requires AI (prompt generation, analysis, summary), exit.
             if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main if AI essential for action
             logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue without AI
 
-        # If the genai library was successfully imported:
-        if genai:
-            # Override config values with command-line arguments if provided.
-            if args.user_agent: current_config['user_agent'] = args.user_agent # User-agent can affect API calls
-            if args.model_name: current_config['default_model_name'] = args.model_name # Override default model name
-            if args.monitor_interval: current_config['monitor_interval_seconds'] = args.monitor_interval # Override monitor interval
+        # Configure the Model via Wrapper
+        # Override config values with command-line arguments if provided.
+        if args.user_agent: current_config['user_agent'] = args.user_agent # User-agent can affect API calls
+        if args.model_name: current_config['default_model_name'] = args.model_name # Override default model name
+        if args.monitor_interval: current_config['monitor_interval_seconds'] = args.monitor_interval # Override monitor interval
 
-            # Determine the API key to use, prioritizing environment variable > config file > command-line flag.
-            api_key_to_use = os.environ.get("GOOGLE_API_KEY") or current_config.get("api_key") or args.api_key
-            # Keep track of where the key was found for logging.
-            source_indicator = "ENV" if os.environ.get("GOOGLE_API_KEY") else ("config" if current_config.get("api_key") else ("flag" if args.api_key else "None"))
+        provider_name = args.provider
+        model_name_to_use = current_config['default_model_name']
+        
+        # Determine API Key based on provider
+        api_key_to_use = None
+        source_indicator = "None"
 
-            # Check if a valid API key was found.
-            if not api_key_to_use or api_key_to_use == "use_ur_own_keys_babe":
-                # If key is missing or is the placeholder, log a critical error.
-                logging.critical(f"❌ API Key missing or placeholder used for action '{BOLD}{action}{RESET}' (Source: {source_indicator}).")
+        if provider_name == "gemini":
+             api_key_to_use = os.environ.get("GOOGLE_API_KEY") or current_config.get("api_key") or args.api_key
+             source_indicator = "ENV (GOOGLE_API_KEY)" if os.environ.get("GOOGLE_API_KEY") else ("config" if current_config.get("api_key") else ("flag" if args.api_key else "None"))
+        elif provider_name == "openrouter":
+             api_key_to_use = os.environ.get("OPENROUTER_API_KEY") or current_config.get("openrouter_api_key") or args.api_key
+             source_indicator = "ENV (OPENROUTER_API_KEY)" if os.environ.get("OPENROUTER_API_KEY") else ("config" if current_config.get("openrouter_api_key") else ("flag" if args.api_key else "None"))
+
+        # Check if a valid API key was found.
+        if not api_key_to_use or "use_ur" in str(api_key_to_use):
+            # If key is missing or is the placeholder, log a critical error.
+            logging.critical(f"❌ API Key missing or placeholder used for provider '{BOLD}{provider_name}{RESET}' (Source: {source_indicator}).")
+            # If the requested action *strictly* requires AI, exit.
+            if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main
+        else:
+            # If a key is found, attempt to configure the Gemini model.
+            logging.info(f"🔑 Using API key from {BOLD}{source_indicator}{RESET}.")
+            logging.info(f"🧠 Attempting to configure {provider_name} model: {BOLD}{model_name_to_use}{RESET}")
+            try:
+                model = get_llm_provider(provider_name, model_name_to_use)
+                model.configure(api_key=api_key_to_use)
+                # Quick test
+                model.count_tokens("test")
+                logging.info(f"✅ Successfully configured {provider_name} model: {BOLD}{model_name_to_use}{RESET}")
+            except Exception as e:
+                # If model configuration or the test call fails, log a critical error.
+                logging.critical(f"❌ Failed to configure {provider_name} model '{BOLD}{model_name_to_use}{RESET}': {e}", exc_info=args.log_level == "DEBUG") # Log traceback if debug level
+                model = None # Set model to None to indicate failure
                 # If the requested action *strictly* requires AI, exit.
                 if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main
-            else:
-                # If a key is found, attempt to configure the Gemini model.
-                logging.info(f"🔑 Using API key from {BOLD}{source_indicator}{RESET}.")
-                model_name_to_use = current_config['default_model_name'] # Get the model name from config (potentially overridden by flag)
-                logging.info(f"🧠 Attempting to configure Gemini model: {BOLD}{model_name_to_use}{RESET}")
-                try:
-                    genai.configure(api_key=api_key_to_use) # Configure the genai library
-                    model = genai.GenerativeModel(model_name_to_use) # Instantiate the model
-                    model.count_tokens("test") # Make a quick dummy call to validate the model configuration/API key
-                    logging.info(f"✅ Successfully configured Gemini model: {BOLD}{model_name_to_use}{RESET}")
-                except Exception as e:
-                    # If model configuration or the test call fails, log a critical error.
-                    logging.critical(f"❌ Failed to configure Gemini model '{BOLD}{model_name_to_use}{RESET}': {e}", exc_info=args.log_level == "DEBUG") # Log traceback if debug level
-                    model = None # Set model to None to indicate failure
-                    # If the requested action *strictly* requires AI, exit.
-                    if action == "generate_prompt" or (action == "process_user_data" and (args.run_analysis or args.summarize_stats)): return # Exit main
-                    logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue
+                logging.warning("   AI features will be unavailable.") # Otherwise, warn and continue
 
     else:
          # If AI is not needed for the selected action, skip AI setup entirely.
@@ -951,7 +962,7 @@ def main():
 
                  try:
                      # Import analysis functions here, ensuring they are available.
-                     from analysis import generate_mapped_analysis, generate_raw_analysis
+                     from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis
                  except ImportError as e:
                      logging.critical(f"❌ Failed to import analysis functions from analysis.py: {e}");
                      return # Exit if analysis functions cannot be imported
@@ -1008,11 +1019,18 @@ def main():
                      return # Exit if no data remains
 
                  # Call the appropriate analysis function based on the selected mode.
-                 from analysis import generate_mapped_analysis, generate_raw_analysis # Re-import within block for clarity
+                 from analysis import generate_mapped_analysis, generate_raw_analysis, generate_subreddit_persona_analysis # Re-import within block for clarity
 
                  if args.analysis_mode == "raw":
                      # Call generate_raw_analysis with CSV paths and common arguments.
                      analysis_success = generate_raw_analysis(
+                         posts_csv=posts_csv_input,
+                         comments_csv=comments_csv_input,
+                         **analysis_func_args
+                     )
+                 elif args.analysis_mode == "subreddit_persona":
+                     # Call generate_subreddit_persona_analysis
+                     analysis_success = generate_subreddit_persona_analysis(
                          posts_csv=posts_csv_input,
                          comments_csv=comments_csv_input,
                          **analysis_func_args

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "redstalk"
+version = "1.9.6"
+description = "Advanced Reddit User Activity Analysis Tool"
+readme = "README.md"
+authors = [
+  { name = "Sarthak-Sidhant", email = "sidhant@example.com" },
+]
+license = { text = "AGPL-3.0" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPL-3.0)",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.25.0",
+    "rich>=10.0.0",
+    "google-generativeai>=0.3.0",
+    "vaderSentiment>=3.3.0",
+    "pandas>=1.2.0",
+    "tqdm>=4.60.0",
+    "openai>=1.0.0" 
+]
+
+[project.urls]
+"Homepage" = "https://github.com/sarthak-sidhant/redstalk"
+"Bug Tracker" = "https://github.com/sarthak-sidhant/redstalk/issues"
+
+[project.scripts]
+redstalk = "redstalk:main"
+
+[tool.setuptools]
+py-modules = ["redstalk", "ai_utils", "analysis", "config_utils", "data_utils", "monitoring", "reddit_utils"]
+packages = ["stats"]

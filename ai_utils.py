@@ -7,14 +7,17 @@ features for concurrent token counting to improve performance during chunking
 and an interactive assistant for generating system prompts.
 """
 
-# Import necessary libraries
-import logging # For logging information, warnings, and errors
-import google.generativeai as genai # The core library for interacting with Google's AI models
-import time # For adding delays (if needed for rate limits) and measuring execution time
-import os # For interacting with the operating system, like creating directories
-import re # For regular expressions (used in interactive prompt cleanup)
-import concurrent.futures # Provides ThreadPoolExecutor for concurrent execution
-from tqdm import tqdm # For displaying progress bars, useful for long-running tasks like token counting
+import logging
+import time
+import os
+import re
+import concurrent.futures
+from tqdm import tqdm
+try:
+    from llm_wrapper import GeminiProvider
+except ImportError:
+    GeminiProvider = type(None) # Fallback for isinstance check if import fails
+
 
 # Define ANSI escape codes for colored terminal output (makes logs/messages more readable)
 CYAN = "\033[36m"; RESET = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"; MAGENTA = "\033[35m"; YELLOW = "\033[33m"; GREEN = "\033[32m"; RED = "\033[31m"
@@ -32,13 +35,13 @@ MAX_CONCURRENT_TOKEN_CALLS = 10
 def count_tokens(model, text):
     """
     Counts the number of tokens in a given text string using the specified
-    GenerativeModel instance's built-in count_tokens method.
+    LLM provider's count_tokens method.
 
     Handles non-string inputs and empty strings gracefully. Logs errors
     if the API call fails.
 
     Args:
-        model: An instance of google.generativeai.GenerativeModel.
+        model: An instance of an LLMProvider (GeminiProvider or OpenRouterProvider).
         text: The string text whose tokens need to be counted.
 
     Returns:
@@ -55,12 +58,8 @@ def count_tokens(model, text):
         return 0 # Return 0 for empty strings
 
     try:
-        # Call the model's count_tokens method. This is an API call.
-        # A small delay *could* be added here per call if *individual* call
-        # rate limits were still an issue even with concurrency, but typically
-        # handling concurrency via ThreadPoolExecutor is more effective.
-        # time.sleep(0.02) # e.g., 20ms delay - currently commented out
-        token_count = model.count_tokens(text).total_tokens
+        # Call the model's count_tokens method.
+        token_count = model.count_tokens(text)
         return token_count
     except Exception as e:
         # Log any exceptions that occur during the API call for counting tokens.
@@ -103,7 +102,7 @@ def _get_item_token_count(item_tuple, model):
 
 
 # --- Modified Chunking Function with Concurrent Pre-calculation ---
-def chunk_items(items: list, model: genai.GenerativeModel, max_chunk_tokens: int, item_separator="\n\n---\n\n"):
+def chunk_items(items: list, model, max_chunk_tokens: int, item_separator="\n\n---\n\n"):
     """
     Groups a list of item strings into chunks, ensuring each chunk (plus
     separators) stays within a specified token limit.
@@ -343,12 +342,8 @@ def perform_ai_analysis(model, system_prompt, entries: list, output_file, chunk_
     logging.debug(f"      Output file target: {CYAN}{output_file}{RESET}")
     logging.debug(f"      Chunk size target: {chunk_size} tokens")
 
-    # Define the generation configuration for the AI model.
-    # This includes parameters like temperature, top_p, top_k, and max output tokens.
-    generation_config = genai.GenerationConfig(
-        temperature=0.7, top_p=0.95, top_k=40, max_output_tokens=32768, # Example values
-    )
-    logging.debug(f"      Generation config: {generation_config}")
+    # Generation config is now handled inside the wrapper usually, but we keep the concept for logging.
+    logging.debug(f"      Model Provider: {model.name}")
 
     # --- Determine Separator and Perform Fast Estimate ---
     # The separator used for joining items within a chunk.
@@ -427,26 +422,16 @@ def perform_ai_analysis(model, system_prompt, entries: list, output_file, chunk_
         try:
             # Make the API call to generate content for the single chunk.
             api_calls_made += 1
-            response = model.generate_content(contents=full_prompt, generation_config=generation_config)
+            response_text = model.generate_content(full_prompt)
 
-            # Process the API response.
-            if hasattr(response, 'text') and response.text is not None:
+            if response_text and not response_text.startswith("[BLOCKED") and not response_text.startswith("[ERROR"):
                 # If successful, store the generated text.
-                final_result = response.text
+                final_result = response_text
                 logging.info(f"      ✅ Successfully received analysis for single chunk.")
-            # Handle cases where the prompt was blocked by safety filters.
-            elif hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
-                 block_reason = response.prompt_feedback.block_reason or "Unknown"
-                 safety_ratings_str = str(getattr(response.prompt_feedback, 'safety_ratings', 'N/A'))
-                 logging.error(f"      ❌ Analysis failed/blocked for single chunk. Reason: {block_reason}. Ratings: {safety_ratings_str}")
-                 # Add an error message to the result to indicate failure.
-                 final_result = f"[ERROR: Analysis generation failed or was blocked. Reason: {block_reason}. Safety Ratings: {safety_ratings_str}]"
-                 errors_occurred = True # Set the error flag
             else:
-                 # Handle cases where the response is unexpected (no text and no block reason).
-                 response_str = str(response)[:200] if response else "None" # Log a snippet of the response
-                 logging.error(f"      ❌ Analysis failed: No text content or block reason in response. Response snippet: {response_str}...")
-                 final_result = f"[ERROR: Analysis generation failed. No text content received. Response: {response_str}...]"
+                 # Handle cases where the response is unexpected or blocked.
+                 logging.error(f"      ❌ Analysis failed/blocked for single chunk. Response: {response_text}")
+                 final_result = f"[ERROR: Analysis generation failed. Response: {response_text}]"
                  errors_occurred = True # Set the error flag
         except Exception as e:
             # Catch any other exceptions during the API call (network issues, invalid parameters, etc.)
@@ -481,13 +466,11 @@ def perform_ai_analysis(model, system_prompt, entries: list, output_file, chunk_
             try:
                 # Make the API call for the current chunk.
                 api_calls_made += 1
-                response = model.generate_content(contents=prompt_for_chunk, generation_config=generation_config)
+                response_text = model.generate_content(prompt_for_chunk)
 
-                # Process the API response for the chunk.
-                if hasattr(response, 'text') and response.text is not None:
+                if response_text and not response_text.startswith("[BLOCKED") and not response_text.startswith("[ERROR"):
                     # If successful, append the result to the list of chunk results.
-                    chunk_result = response.text
-                    all_chunk_results.append(chunk_result)
+                    all_chunk_results.append(response_text)
                     elapsed = time.time() - chunk_start_time # Time taken for this chunk
                     logging.info(f"      ✅ Successfully received analysis for chunk {i+1} ({elapsed:.2f}s).")
                     # Add a small delay between chunk calls to respect potential rate limits.
@@ -495,22 +478,11 @@ def perform_ai_analysis(model, system_prompt, entries: list, output_file, chunk_
                         delay = 1.0
                         logging.debug(f"         😴 Delaying {delay:.1f}s before next chunk...")
                         time.sleep(delay)
-                # Handle blocked chunks.
-                elif hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
-                     block_reason = response.prompt_feedback.block_reason or "Unknown"
-                     safety_ratings_str = str(getattr(response.prompt_feedback, 'safety_ratings', 'N/A'))
-                     logging.error(f"      ❌ Analysis failed/blocked for chunk {i+1}. Reason: {block_reason}. Ratings: {safety_ratings_str}")
-                     # Add an error message result for this chunk.
-                     all_chunk_results.append(f"\n\n[ERROR PROCESSING CHUNK {i+1}/{total_chunks}: Blocked - {block_reason}. Safety Ratings: {safety_ratings_str}]\n\n")
+                else:
+                     logging.error(f"      ❌ Analysis failed/blocked for chunk {i+1}. Response: {response_text}")
+                     all_chunk_results.append(f"\n\n[ERROR PROCESSING CHUNK {i+1}/{total_chunks}: {response_text}]\n\n")
                      errors_occurred = True # Set the error flag
                      time.sleep(2) # Add a longer delay after an error
-                else:
-                    # Handle unexpected empty response for a chunk.
-                    response_str = str(response)[:200] if response else "None"
-                    logging.error(f"      ❌ Analysis failed for chunk {i+1}: No text content or block reason. Response: {response_str}...")
-                    all_chunk_results.append(f"\n\n[ERROR PROCESSING CHUNK {i+1}/{total_chunks}: No text content received. Response: {response_str}...]\n\n")
-                    errors_occurred = True # Set the error flag
-                    time.sleep(2) # Add a longer delay after an error
             except Exception as e:
                 # Catch exceptions during the API call for a specific chunk.
                 logging.error(f"      🔥 Error generating content for chunk {i+1}: {e}", exc_info=True)
@@ -566,10 +538,14 @@ def generate_prompt_interactive(model, prompt_dir):
     clarifying questions from the AI, refine the prompt, and finally save it.
 
     Args:
-        model: An instance of google.generativeai.GenerativeModel to act as
-               the prompt generation assistant.
+        model: An instance of an LLMProvider to act as the prompt generation assistant.
         prompt_dir: The directory path where generated prompts should be saved.
     """
+    if not isinstance(model, GeminiProvider):
+        logging.warning("Interactive prompt generation is currently only supported with Gemini models (due to chat history requirements).")
+        print(f"\n{YELLOW}Sorry, interactive prompt generation is not yet supported for OpenRouter/other models.{RESET}")
+        return
+
     logging.info(f"🖊️ Starting interactive prompt generation...")
     # Ensure the directory for prompts exists.
     os.makedirs(prompt_dir, exist_ok=True)
