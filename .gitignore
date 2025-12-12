@@ -4,3 +4,6 @@ config.json
 /priv
 /data
 *.pyc
+.env
+build/
+*.egg-info/

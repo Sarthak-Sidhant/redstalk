@@ -24,7 +24,10 @@ dependencies = [
     "vaderSentiment>=3.3.0",
     "pandas>=1.2.0",
     "tqdm>=4.60.0",
-    "openai>=1.0.0" 
+    "openai>=1.0.0",
+    "langchain-nvidia-ai-endpoints>=0.0.1",
+    "python-dotenv>=1.0.0",
+    "langchain-core>=0.1.0"
 ]
 
 [project.urls]
@@ -35,5 +38,5 @@ dependencies = [
 redstalk = "redstalk.main:main"
 
 [tool.setuptools]
-packages = ["redstalk"]
+packages = ["redstalk", "redstalk.stats"]
 

@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple # Imports for type hints, improving cod
 # These functions are assumed to be available in the project structure.
 # Using a try-except block to handle potential import errors gracefully.
 try:
-    from reddit_utils import get_modification_date, format_timestamp # Utility functions for date handling
+    from .reddit_utils import get_modification_date, format_timestamp # Utility functions for date handling
     REDDIT_UTILS_AVAILABLE = True
 except ImportError:
     logging.warning("Could not import from reddit_utils. Date handling might be limited.")

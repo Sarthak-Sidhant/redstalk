@@ -27,9 +27,7 @@ from .llm_wrapper import get_llm_provider # Import the generic LLM provider fact
 from .config_utils import load_config, save_config, DEFAULT_CONFIG # Configuration tools
 from .ai_utils import count_tokens # AI token counting utility
 from .reddit_utils import save_reddit_data, _fetch_user_about_data
-from .stats import generate_stats_report # Statistics report generator
 from .data_utils import extract_csvs_from_json # Note: The import signature might look different from its definition, but the usage later reflects the actual signature.
-from .stats.comparison import compare_users # User comparison tool
 from .monitoring import monitor_user
 
 # Import statistics generation functions. Wrapped in a try/except
@@ -1011,6 +1009,32 @@ def main():
                      "focus_subreddits": args.focus_subreddit,
                      "ignore_subreddits": args.ignore_subreddit
                  }
+                 
+                 # --- Specialized Prompt for Persona Mode ---
+                 if args.analysis_mode == "subreddit_persona" and not args.prompt_file:
+                     # If the user didn't explicitly provide a custom prompt file, use this specialized one.
+                     logging.info(f"   🎭 Using specialized system prompt for {BOLD}subreddit_persona{RESET} mode.")
+                     system_prompt = (
+                         "You are an expert OSINT profiler and behavioral analyst specialized in analyzing Reddit user history.\n"
+                         "You have been provided with a Reddit user's activity history, AGGREGATED BY SUBREDDIT.\n"
+                         "The data is structured in blocks starting with '=== SUBREDDIT: r/Name ==='.\n\n"
+                         "YOUR TASK:\n"
+                         "Perform a granular analysis of how the user's persona, opinions, tone, and behavior SHIFT depending on the subreddit they are in.\n"
+                         "Do not just give a general summary. You must break down your analysis by community.\n\n"
+                         "OUTPUT FORMAT:\n"
+                         "For each major subreddit (or group of related subreddits) provided in the data, generate a section:\n\n"
+                         "### In r/[Subreddit Name]\n"
+                         "* **Persona:** (e.g., Expert, Learner, Troll, Supporter)\n"
+                         "* **Key Opinions/Interests:** What did they talk about here? Be specific.\n"
+                         "* **Tone:** (e.g., Formal, Aggressive, Casual)\n"
+                         "* **Observations:** Any specific contradictions or unique traits revealed here compared to other subs?\n\n"
+                         "### Overall Persona Profiling\n"
+                         "* **Code Switching:** How does their identity change across communities?\n"
+                         "* **Inconsistencies:** Any conflicting info?\n\n"
+                         "Be specific and cite the subreddit for every claim."
+                     )
+                     analysis_func_args["system_prompt"] = system_prompt
+
 
                  # Determine which CSV files exist to pass to the analysis functions.
                  posts_csv_input = posts_csv_path if posts_csv_exists else None
