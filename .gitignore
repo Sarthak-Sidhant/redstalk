@@ -1,9 +1,9 @@
 config.json
-/__pycache__
-/stats/__pycache__
+__pycache__/
 /priv
 /data
 *.pyc
 .env
 build/
 *.egg-info/
+.venv/
