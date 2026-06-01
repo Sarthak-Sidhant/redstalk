@@ -534,15 +534,19 @@ def main():
         api_key_to_use = None
         source_indicator = "None"
 
+        def _valid_key(key):
+            """Return key only if it's not None/empty/placeholder."""
+            return key if key and "use_ur" not in str(key) else None
+
         if provider_name == "gemini":
-             api_key_to_use = os.environ.get("GOOGLE_API_KEY") or current_config.get("api_key") or args.api_key
-             source_indicator = "ENV (GOOGLE_API_KEY)" if os.environ.get("GOOGLE_API_KEY") else ("config" if current_config.get("api_key") else ("flag" if args.api_key else "None"))
+             api_key_to_use = _valid_key(os.environ.get("GOOGLE_API_KEY")) or _valid_key(current_config.get("api_key")) or args.api_key
+             source_indicator = "ENV (GOOGLE_API_KEY)" if _valid_key(os.environ.get("GOOGLE_API_KEY")) else ("config" if _valid_key(current_config.get("api_key")) else ("flag" if args.api_key else "None"))
         elif provider_name == "openrouter":
-             api_key_to_use = os.environ.get("OPENROUTER_API_KEY") or current_config.get("openrouter_api_key") or args.api_key
-             source_indicator = "ENV (OPENROUTER_API_KEY)" if os.environ.get("OPENROUTER_API_KEY") else ("config" if current_config.get("openrouter_api_key") else ("flag" if args.api_key else "None"))
+             api_key_to_use = _valid_key(os.environ.get("OPENROUTER_API_KEY")) or _valid_key(current_config.get("openrouter_api_key")) or args.api_key
+             source_indicator = "ENV (OPENROUTER_API_KEY)" if _valid_key(os.environ.get("OPENROUTER_API_KEY")) else ("config" if _valid_key(current_config.get("openrouter_api_key")) else ("flag" if args.api_key else "None"))
         elif provider_name == "nvidia":
-             api_key_to_use = os.environ.get("NVIDIA_API_KEY") or current_config.get("nvidia_api_key") or args.api_key
-             source_indicator = "ENV (NVIDIA_API_KEY)" if os.environ.get("NVIDIA_API_KEY") else ("config" if current_config.get("nvidia_api_key") else ("flag" if args.api_key else "None"))
+             api_key_to_use = _valid_key(os.environ.get("NVIDIA_API_KEY")) or _valid_key(current_config.get("nvidia_api_key")) or args.api_key
+             source_indicator = "ENV (NVIDIA_API_KEY)" if _valid_key(os.environ.get("NVIDIA_API_KEY")) else ("config" if _valid_key(current_config.get("nvidia_api_key")) else ("flag" if args.api_key else "None"))
 
         # Check if a valid API key was found.
         if not api_key_to_use or "use_ur" in str(api_key_to_use):
