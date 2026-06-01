@@ -22,14 +22,16 @@
 
 ## 📦 Installation
 
-### Option 1: Install with pipx (Recommended for CLI use)
-This isolates RedStalk's dependencies from your system python.
+### Prerequisites
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/):
 ```bash
-# Install directly from the directory
-pipx install .
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# Enable NVIDIA support (install optional extras manually if needed, or pipx inject)
-pipx inject redstalk langchain-nvidia-ai-endpoints python-dotenv
+### Option 1: Install with uv tool (Recommended for CLI use)
+This isolates RedStalk's dependencies from your system Python.
+```bash
+uv tool install .
 ```
 
 ### Option 2: Developer/Editable Install
@@ -37,9 +39,11 @@ Best if you want to modify the code.
 ```bash
 git clone https://github.com/yourusername/redstalk.git
 cd redstalk
-python3 -m venv venv
-source venv/bin/activate
-pip install -e .
+uv sync
+```
+This creates a `.venv` and installs all dependencies. Run commands with:
+```bash
+uv run redstalk --help
 ```
 
 ---
